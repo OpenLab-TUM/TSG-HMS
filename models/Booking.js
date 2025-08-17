@@ -1,0 +1,65 @@
+const mongoose = require('mongoose');
+
+const bookingSchema = new mongoose.Schema({
+  facility: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Facility',
+    required: true
+  },
+  facilityName: {
+    type: String,
+    required: true
+  },
+  date: {
+    type: Date,
+    required: true
+  },
+  startTime: {
+    type: String,
+    required: true
+  },
+  endTime: {
+    type: String,
+    required: true
+  },
+  user: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  userName: {
+    type: String,
+    required: true
+  },
+  purpose: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  status: {
+    type: String,
+    enum: ['pending', 'confirmed', 'cancelled', 'completed'],
+    default: 'pending'
+  },
+  recurring: {
+    type: String,
+    enum: ['none', 'weekly', 'biweekly', 'monthly'],
+    default: 'none'
+  },
+  notes: {
+    type: String,
+    trim: true
+  },
+  totalCost: {
+    type: Number,
+    default: 0
+  }
+}, {
+  timestamps: true
+});
+
+// Index for efficient queries
+bookingSchema.index({ facility: 1, date: 1, startTime: 1 });
+bookingSchema.index({ user: 1, date: 1 });
+
+module.exports = mongoose.model('Booking', bookingSchema);

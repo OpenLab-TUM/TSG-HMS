@@ -1,6 +1,0 @@
-facility,day,start_time,end_time,status
-Main Hall,Monday,09:00,11:00,booked
-Main Hall,Wednesday,14:00,16:00,maintenance
-Small Gym,Tuesday,10:00,12:00,booked
-Yoga Room,Friday,18:00,20:00,booked
-Conference Room,Thursday,13:00,15:00,maintenance 

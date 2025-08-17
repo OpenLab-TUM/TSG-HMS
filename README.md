@@ -1,102 +1,169 @@
-# Projektdokument: Anforderungen für das Verwaltungs­system der TSG Heilbronn (Turnhalle/Fitnessbereich)
+# TSG Hallenmanagement - Backend with MongoDB
 
-## 1. Überblick
+A comprehensive hall management system backend built with Node.js, Express, and MongoDB.
 
-Dieses Dokument beschreibt die Anforderungen für die Entwicklung eines umfassenden Verwaltungs­systems für die Turnhalle und den Fitnessbereich der TSG Heilbronn. Das System soll den Buchungs­prozess optimieren, die Übersicht über verfügbare Zeitfenster verbessern und die gesamte Verwaltungs­effizienz steigern.
+## Features
 
-## 2. Benutzer­rollen
+- **Facility Management**: CRUD operations for sports facilities, meeting rooms, and fitness studios
+- **Booking System**: Advanced booking management with conflict detection and recurring bookings
+- **User Management**: Role-based access control (Admin, Collaborator, User)
+- **RESTful API**: Clean, documented API endpoints with validation
+- **MongoDB Integration**: Robust data persistence with Mongoose ODM
 
-### 2.1 Administrator (Max)
+## Prerequisites
 
-* Vollständiger Zugriff auf alle System­funktionen
-* Erstellen, Anzeigen, Bearbeiten und Löschen sämtlicher Buchungen
-* Verwalten von Benutzer­konten und Berechtigungen
-* Zugriff auf Nutzungs­analysen und Berichte
+- Node.js (v14 or higher)
+- MongoDB Atlas account (cloud database)
+- npm or yarn
 
-### 2.2 Mitarbeiter\:innen
+## Quick Start
 
-* Anlegen von Buchungen für verfügbare Zeitfenster
-* Anzeigen bestehender Buchungen (nur Lesezugriff)
-* Verwalten eigener Buchungen (eigene Buchungen bearbeiten/löschen)
-* Übersicht über die Verfügbarkeit aller Einrichtungen
+1. **Install dependencies**: `npm install`
+2. **Start MongoDB**: `brew services start mongodb-community` (macOS) or `mongod`
+3. **Seed database**: `node seeder.js`
+4. **Start server**: `npm run dev`
+5. **Access API**: http://localhost:5001
 
-## 3. Kern­funktionen
+## Installation
 
-### 3.1 Buchungs­verwaltung
+1. **Clone the repository**
+   ```bash
+   git clone <repository-url>
+   cd TSG-Hallenmanagement
+   ```
 
-* **Buchungserstellung:** Einfache Oberfläche zur Auswahl von Einrichtung, Datum, Zeitfenster und Buchungs­zweck
-* **Buchungs­übersicht:** Deutliche Kennzeichnung belegter und freier Zeitfenster
-* **Buchungs­änderung:** Optionen zum Bearbeiten oder Stornieren von Buchungen (entsprechende Berechtigungen vorausgesetzt)
-* **Serien­buchungen:** Erstellen von wöchentlichen, zwei­wöchigen oder monatlichen Wiederholungs­buchungen
-* **Buchungs­benachrichtigungen:** Automatisierte E-Mail­bestätigungen bei Erstellung, Änderung oder Stornierung
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
 
-### 3.2 Visualisierung der Einrichtungen
+3. **Set up environment variables**
+   ```bash
+   cp config.env.example config.env
+   # Edit config.env with your MongoDB connection string
+   ```
 
-* **Planansicht:** Interaktiver Grundriss aller Turnhallen- und Fitness­bereiche
-* **Farbliche Kennzeichnung:** Visuelle Darstellung des Verfügbarkeits­status (frei, belegt, Wartung)
-* **Einrichtungs­details:** Kurzinfo zu jeder Einrichtung (Größe, Kapazität, Ausstattung usw.)
-* **Filter­optionen:** Filter nach Größe, Ausstattung und Verfügbarkeit
+4. **MongoDB Atlas is already configured**
+   - Cloud database connection is set up
+   - No local MongoDB installation required
+   - Database is accessible from anywhere
 
-### 3.3 Listenansicht
+5. **Seed the database with sample data**
+   ```bash
+   node seeder.js
+   ```
 
-* **Kalender­integration:** Wochen-/Monats­ansicht aller Buchungen
-* **Sortier- & Filter­funktionen:** Sortierung nach Einrichtung, Zeit, Benutzer\:in usw.
-* **Zeitfenster­anzeige:** Klare Darstellung freier Zeitfenster pro Einrichtung
-* **Buchungs­details:** Schneller Zugriff auf alle Infos zu einer Buchung
+6. **Start the server**
+   ```bash
+   # Development mode with auto-restart
+   npm run dev
+   
+   # Production mode
+   npm start
+   ```
 
-### 3.4 Administrator­funktionen
+## API Endpoints
 
-* **Benutzer­verwaltung:** Hinzufügen, Bearbeiten und Entfernen von System­benutzer\:innen
-* **Berechtigungs­steuerung:** Zuweisen spezifischer Rechte für Benutzergruppen
-* **Berichte:** Erstellung von Nutzungs­statistiken für Einrichtungen (Auslastung, Stoßzeiten usw.)
-* **System­konfiguration:** Anpassung von Systemeinstellungen, Einrichtungs­details und Buchungs­regeln
+### Facilities
+- `GET /api/facilities` - Get all facilities
+- `GET /api/facilities/:id` - Get facility by ID
+- `POST /api/facilities` - Create new facility
+- `PUT /api/facilities/:id` - Update facility
+- `DELETE /api/facilities/:id` - Delete facility
+- `GET /api/facilities/status/:status` - Get facilities by status
 
-## 4. Technische Anforderungen
+### Bookings
+- `GET /api/bookings` - Get all bookings (with filters)
+- `GET /api/bookings/:id` - Get booking by ID
+- `POST /api/bookings` - Create new booking
+- `PUT /api/bookings/:id` - Update booking
+- `DELETE /api/bookings/:id` - Delete booking
+- `GET /api/bookings/range/:startDate/:endDate` - Get bookings by date range
+- `GET /api/bookings/facility/:facilityId` - Get bookings for specific facility
 
-* **Responsives Design:** Zugriff von Desktop, Tablet und Mobilgeräten
-* **Echtzeit­aktualisierung:** Sofortige Anzeige von Buchungs­änderungen für alle Nutzer\:innen
-* **Sichere Authentifizierung:** Rollen­basierte Zugriffs­kontrolle mit sicherem Login
-* **Datensicherung:** Automatisierte, regelmäßige Backups aller System­daten
-* **Performance:** Schnelle Ladezeiten und reaktive Oberfläche auch bei hoher Auslastung
+### Users
+- `GET /api/users` - Get all users (with filters)
+- `GET /api/users/:id` - Get user by ID
+- `POST /api/users` - Create new user
+- `PUT /api/users/:id` - Update user
+- `DELETE /api/users/:id` - Deactivate user
+- `PATCH /api/users/:id/preferences` - Update user preferences
+- `GET /api/users/role/:role` - Get users by role
 
-## 5. Benutzer­erlebnis
+## Database Schema
 
-* **Intuitive Oberfläche:** Klar gestaltetes Design mit minimalem Schulungs­aufwand
-* **Schnelle Buchung:** Streamlin­ed Prozess zur Buchung in nur wenigen Klicks
-* **Visuelle Klarheit:** Deutliche Unterscheidung freier und belegter Slots
-* **Nahtloser Wechsel:** Einfache Umschaltung zwischen Plan- und Listen­ansicht
-* **Feedback-System:** In-App-Benachrichtigungen zur Bestätigung von Aktionen
+### Facility
+- Basic info: name, capacity, size, status
+- Equipment list and description
+- Opening hours for each day
+- Hourly rate and color coding
 
-## 6. Implementierungs­phasen
+### Booking
+- Facility and user references
+- Date, start/end times
+- Purpose, status, and recurring options
+- Conflict detection and validation
 
-### Phase 1: Kern­funktionalität
+### User
+- Authentication details (username, email)
+- Personal info and contact details
+- Role-based permissions
+- Preferences and settings
 
-* Basis­buchungssystem mit Admin- und Mitarbeiter\:innen­rollen
-* Einfache Listenansicht der Einrichtungen und Zeitfenster
-* Grundlegende Buchungs­verwaltungs­funktionen
+## Configuration
 
-### Phase 2: Erweiterte Visualisierung
+Edit `config.env` to customize:
+- MongoDB connection string
+- Server port
+- Environment settings
 
-* Interaktive Planansicht
-* Erweiterte Filter- und Sortier­optionen
-* Verbesserte Buchungs­oberfläche mit Drag-and-Drop
+## Development
 
-### Phase 3: Erweiterte Features
+- **Auto-restart**: `npm run dev` (uses nodemon)
+- **API Testing**: Use Postman or similar tools
+- **Database**: MongoDB with Mongoose ODM
+- **Validation**: Express-validator for input validation
 
-* Dashboard für Berichte und Analysen
-* Entwicklung einer mobilen App
-* Integration externer Kalender­systeme
-* Automatisches Erinnerungs­system
+## Production Deployment
 
-## 7. Erfolgskriterien
+1. Set `NODE_ENV=production` in environment
+2. Ensure MongoDB is properly secured
+3. Use PM2 or similar process manager
+4. Set up proper logging and monitoring
 
-* Reduzierung von Buchungs­konflikten und Doppel­buchungen
-* Steigerung der Auslastungs­raten der Einrichtungen
-* Positives Nutzer\:innen­feedback zur Bedienbarkeit
-* Weniger administrativer Aufwand für manuelle Buchungen
+## Troubleshooting
 
-## 8. Nächste Schritte
+### Common Issues
 
-Wir freuen uns auf Ihr Feedback zu diesem Dokument, um sicherzustellen, dass Vision und Anforderungen mit den Bedürfnissen der TSG Heilbronn übereinstimmen. Nach Ihrer Freigabe werden wir in die detaillierte Planungs- und Designphase übergehen und Ressourcen sowie Zeitpläne festlegen.
+1. **MongoDB Connection Error**
+   - Ensure MongoDB is running
+   - Check connection string in config.env
+   - Verify network access
 
-Bitte prüfen Sie das Dokument und teilen Sie uns mit, ob Sie weitere Anforderungen oder Anpassungen wünschen. Unser Ziel ist es, ein System zu liefern, das Ihre Verwaltung optimiert und das Buchungserlebnis für alle Nutzer\:innen verbessert.
+2. **Port Already in Use**
+   - Change PORT in config.env
+   - Kill existing process on port 5000
+
+3. **Validation Errors**
+   - Check request body format
+   - Ensure required fields are provided
+   - Verify data types
+
+### Logs
+
+Check console output for:
+- Database connection status
+- API request logs
+- Error messages and stack traces
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
+
+## License
+
+MIT License - see LICENSE file for details

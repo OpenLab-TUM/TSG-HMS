@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
 require('dotenv').config({ path: './config.env' });
 
 // Import models
@@ -13,45 +14,55 @@ const sampleUsers = [
     email: 'max.admin@tsg-heilbronn.de',
     firstName: 'Max',
     lastName: 'Admin',
+    password: 'Admin123!', // Will be hashed
     role: 'admin',
     phone: '+49 7131 123456',
-    isActive: true
+    verified: true,
+    status: 'active'
   },
   {
     username: 'sarah.smith',
     email: 'sarah.smith@tsg-heilbronn.de',
     firstName: 'Sarah',
     lastName: 'Smith',
+    password: 'Sarah123!', // Will be hashed
     role: 'collaborator',
     phone: '+49 7131 123457',
-    isActive: true
+    verified: true,
+    status: 'active'
   },
   {
     username: 'john.doe',
     email: 'john.doe@tsg-heilbronn.de',
     firstName: 'John',
     lastName: 'Doe',
-    role: 'user',
+    password: 'John123!', // Will be hashed
+    role: 'collaborator',
     phone: '+49 7131 123458',
-    isActive: true
+    verified: true,
+    status: 'active'
   },
   {
     username: 'emma.wilson',
     email: 'emma.wilson@tsg-heilbronn.de',
     firstName: 'Emma',
     lastName: 'Wilson',
-    role: 'user',
+    password: 'Emma123!', // Will be hashed
+    role: 'collaborator',
     phone: '+49 7131 123459',
-    isActive: true
+    verified: true,
+    status: 'active'
   },
   {
     username: 'mike.johnson',
     email: 'mike.johnson@tsg-heilbronn.de',
     firstName: 'Mike',
     lastName: 'Johnson',
-    role: 'user',
+    password: 'Mike123!', // Will be hashed
+    role: 'collaborator',
     phone: '+49 7131 123460',
-    isActive: true
+    verified: true,
+    status: 'active'
   }
 ];
 
@@ -190,9 +201,21 @@ const seedDatabase = async () => {
     
     console.log('Cleared existing data');
     
-    // Insert users
-    const createdUsers = await User.insertMany(sampleUsers);
-    console.log(`Created ${createdUsers.length} users`);
+    // Create users with hashed passwords
+    const createdUsers = [];
+    for (const userData of sampleUsers) {
+      // Hash password
+      const saltRounds = 12;
+      const hashedPassword = await bcrypt.hash(userData.password, saltRounds);
+      
+      const user = new User({
+        ...userData,
+        password: hashedPassword
+      });
+      await user.save();
+      createdUsers.push(user);
+      console.log(`Created user: ${user.username} (${user.role})`);
+    }
     
     // Insert facilities
     const createdFacilities = await Facility.insertMany(sampleFacilities);

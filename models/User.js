@@ -24,18 +24,27 @@ const userSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
+  password: {
+    type: String,
+    required: true
+  },
   role: {
     type: String,
-    enum: ['admin', 'collaborator', 'user'],
-    default: 'user'
+    enum: ['admin', 'collaborator'],
+    default: 'collaborator'
+  },
+  verified: {
+    type: Boolean,
+    default: false
+  },
+  status: {
+    type: String,
+    enum: ['pending', 'active', 'suspended'],
+    default: 'pending'
   },
   phone: {
     type: String,
     trim: true
-  },
-  isActive: {
-    type: Boolean,
-    default: true
   },
   lastLogin: {
     type: Date

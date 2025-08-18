@@ -4,9 +4,14 @@ class ApiService {
   // Generic request method
   async request(endpoint, options = {}) {
     const url = `${API_BASE_URL}${endpoint}`;
+    
+    // Get token from localStorage
+    const token = localStorage.getItem('token');
+    
     const config = {
       headers: {
         'Content-Type': 'application/json',
+        ...(token && { 'Authorization': `Bearer ${token}` }),
         ...options.headers,
       },
       ...options,
@@ -14,6 +19,13 @@ class ApiService {
 
     try {
       const response = await fetch(url, config);
+      
+      if (response.status === 401) {
+        // Token expired or invalid; let caller handle state/UI
+        localStorage.removeItem('token');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Authentication required');
+      }
       
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -153,6 +165,29 @@ class ApiService {
 
   async getUsersByRole(role) {
     return this.request(`/users/role/${role}`);
+  }
+
+  // Authentication endpoints
+  async login(credentials) {
+    return this.request('/auth/login', {
+      method: 'POST',
+      body: JSON.stringify(credentials),
+    });
+  }
+
+  async register(userData) {
+    return this.request('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify(userData),
+    });
+  }
+
+  async verifyToken() {
+    return this.request('/auth/verify');
+  }
+
+  async refreshToken() {
+    return this.request('/auth/refresh');
   }
 
   // Utility methods

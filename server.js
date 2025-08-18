@@ -20,6 +20,7 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://assemeldlebsh:Assem12
 .catch(err => console.error('MongoDB Atlas connection error:', err));
 
 // Import routes
+const authRoutes = require('./routes/auth');
 const facilityRoutes = require('./routes/facilities');
 const bookingRoutes = require('./routes/bookings');
 const userRoutes = require('./routes/users');
@@ -30,6 +31,7 @@ app.get('/health', (req, res) => {
 });
 
 // Use routes
+app.use('/api/auth', authRoutes);
 app.use('/api/facilities', facilityRoutes);
 app.use('/api/bookings', bookingRoutes);
 app.use('/api/users', userRoutes);

@@ -1,8 +1,16 @@
-import React, { useState, useEffect } from 'react';
-import { Calendar, MapPin, Users, Clock, ChevronRight, Grid, List, Plus, Search, Filter, User, Settings, LogOut, Home, ChevronDown, X, Check, Edit2, Trash2, Eye, Table2, ChevronLeft } from 'lucide-react';
+/* eslint-disable no-unused-vars */
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Calendar, MapPin, Users, Clock, ChevronRight, Grid, List, Plus, Search, Map, User, Settings, LogOut, Home, X, Edit2, Trash2, Eye, Table2, ChevronLeft } from 'lucide-react';
 import api from './services/api';
+import { useAuth, AuthProvider } from './contexts/AuthContext';
+import Login from './components/Login';
+import Register from './components/Register';
+import MapView from './components/MapView';
+import FloorPlanView from './components/FloorPlanView';
 
-const App = () => {
+const AppContent = () => {
+  const { user, isAdmin, isCollaborator, canBook, canManageUsers, canManageFacilities, canViewReports, canEditBooking, canDeleteBooking, logout, login, register, loading: authLoading, error: authError, setError: setAuthError } = useAuth();
+  
   const [currentView, setCurrentView] = useState('dashboard');
   const [viewMode, setViewMode] = useState('list');
   const [selectedFacility, setSelectedFacility] = useState(null);
@@ -17,66 +25,74 @@ const App = () => {
     purpose: '',
     recurring: 'none'
   });
+  const purposeInputRef = useRef(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
-  const [userRole] = useState('admin'); // Can be 'admin' or 'collaborator'
   const [facilities, setFacilities] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [users, setUsers] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [dataLoading, setDataLoading] = useState(false);
+  const [dataError, setDataError] = useState(null);
+  const [showAuth, setShowAuth] = useState('login'); // 'login' or 'register'
 
-  const timeSlots = [
+  const timeSlots = useMemo(() => [
     '06:00', '07:00', '08:00', '09:00', '10:00', '11:00',
     '12:00', '13:00', '14:00', '15:00', '16:00', '17:00',
     '18:00', '19:00', '20:00', '21:00', '22:00'
-  ];
+  ], []);
 
-  // Fetch data from API
+  // Fetch data from API AFTER user is authenticated
   useEffect(() => {
     const fetchData = async () => {
       try {
-        setLoading(true);
-        setError(null);
-        
-        // Fetch facilities, bookings, and users in parallel
+        if (!user) return; // skip until logged in
+        setDataLoading(true);
+        setDataError(null);
         const [facilitiesData, bookingsData, usersData] = await Promise.all([
           api.getFacilities(),
           api.getBookings(),
           api.getUsers()
         ]);
-        
         setFacilities(facilitiesData);
         setBookings(bookingsData);
         setUsers(usersData);
       } catch (err) {
         console.error('Error fetching data:', err);
-        setError('Failed to load data. Please check if the backend is running.');
+        setDataError('Failed to load data. Please check if the backend is running.');
       } finally {
-        setLoading(false);
+        setDataLoading(false);
       }
     };
 
     fetchData();
-  }, []);
+  }, [user]);
 
-  // Refresh data function
+  // Focus purpose input when modal opens
+  useEffect(() => {
+    if (showBookingModal && purposeInputRef.current) {
+      setTimeout(() => {
+        purposeInputRef.current?.focus();
+      }, 100);
+    }
+  }, [showBookingModal]);
+
+  // Refresh data function (requires auth)
   const refreshData = async () => {
+    if (!user) return;
     try {
-      setLoading(true);
+      setDataLoading(true);
       const [facilitiesData, bookingsData, usersData] = await Promise.all([
         api.getFacilities(),
         api.getBookings(),
         api.getUsers()
       ]);
-      
       setFacilities(facilitiesData);
       setBookings(bookingsData);
       setUsers(usersData);
     } catch (err) {
       console.error('Error refreshing data:', err);
     } finally {
-      setLoading(false);
+      setDataLoading(false);
     }
   };
 
@@ -154,6 +170,14 @@ const App = () => {
     }
   };
 
+  // Handle form field changes - use callback to prevent unnecessary re-renders
+  const handleFormChange = useCallback((field, value) => {
+    setBookingForm(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  }, []);
+
   const handleBookingSubmit = async (e) => {
     e.preventDefault();
     try {
@@ -170,8 +194,8 @@ const App = () => {
         date: new Date(bookingForm.date + 'T00:00:00.000Z').toISOString(),
         startTime: bookingForm.startTime,
         endTime: bookingForm.endTime,
-        user: '68a1ac66f8c098af61a569c0', // Max Admin user ID from our seeded data
-        userName: 'Max Admin', // Max Admin user name
+        user: user._id,
+        userName: `${user.firstName} ${user.lastName}`,
         purpose: bookingForm.purpose,
         recurring: bookingForm.recurring,
         status: 'confirmed',
@@ -331,7 +355,7 @@ const App = () => {
             <span>Facilities</span>
           </button>
           
-          {userRole === 'admin' && (
+                        {canManageUsers() && (
             <>
               <button
                 onClick={() => setCurrentView('users')}
@@ -352,8 +376,19 @@ const App = () => {
                 <Settings className="w-5 h-5" />
                 <span>Reports</span>
               </button>
+
             </>
           )}
+          
+          <button
+            onClick={() => setCurrentView('map')}
+            className={`w-full flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors ${
+              currentView === 'map' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-800'
+            }`}
+          >
+            <Map className="w-5 h-5" />
+            <span>Map View</span>
+          </button>
         </nav>
       </div>
       
@@ -363,14 +398,20 @@ const App = () => {
             <User className="w-5 h-5" />
           </div>
           <div>
-            <p className="text-sm font-medium">Max Admin</p>
-            <p className="text-xs text-gray-400">{userRole === 'admin' ? 'Administrator' : 'Collaborator'}</p>
+            <p className="text-sm font-medium">{user?.firstName} {user?.lastName}</p>
+            <p className="text-xs text-gray-400">{isAdmin() ? 'Administrator' : 'Collaborator'}</p>
           </div>
         </div>
-        <button className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors">
-          <LogOut className="w-4 h-4" />
-          <span className="text-sm">Logout</span>
-        </button>
+        <button 
+  type="button"
+  onClick={() => { 
+    logout(); 
+      }}
+      className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors"
+    >
+      <LogOut className="w-4 h-4" />
+      <span className="text-sm">Logout</span>
+    </button>
       </div>
     </div>
   );
@@ -638,7 +679,7 @@ const App = () => {
                         <button className="p-1 hover:bg-gray-100 rounded">
                           <Eye className="w-4 h-4 text-gray-600" />
                         </button>
-                        {(userRole === 'admin' || booking.userName === 'Max Admin') && (
+                        {(isAdmin() || canEditBooking(booking)) && (
                           <>
                                                     <button 
                           onClick={() => handleEditBooking(booking)}
@@ -688,7 +729,7 @@ const App = () => {
                 <div className="mt-4 pt-4 border-t border-gray-100">
                   <p className="text-sm text-gray-700 font-medium">{booking.purpose}</p>
                 </div>
-                {(userRole === 'admin' || booking.userName === 'Max Admin') && (
+                                        {(isAdmin() || canEditBooking(booking)) && (
                   <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-end space-x-2">
                     <button 
                       onClick={() => handleEditBooking(booking)}
@@ -831,14 +872,8 @@ const App = () => {
       }).sort((a, b) => a.startTime.localeCompare(b.startTime));
     };
 
-    // Helper function to get the height needed for a cell based on bookings
-    const getCellHeight = (facility, date) => {
-      const dayBookings = getBookingsForFacilityAndDate(facility, date);
-      if (dayBookings.length === 0) return 'h-16'; // Default height for empty days
-      if (dayBookings.length <= 2) return 'h-20'; // Small height for few bookings
-      if (dayBookings.length <= 4) return 'h-24'; // Medium height for moderate bookings
-      return 'h-32'; // Large height for many bookings
-    };
+    // Rows should auto-grow based on content; enforce only a minimum height per cell
+    const MIN_CELL_HEIGHT_CLASS = 'min-h-16';
     
     return (
       <div className="p-8">
@@ -878,13 +913,12 @@ const App = () => {
                     
                     {weekDates.map((date, dateIndex) => {
                       const dayBookings = getBookingsForFacilityAndDate(facility, date);
-                      const cellHeight = getCellHeight(facility, date);
                       const isToday = formatDateForComparison(date) === formatDateForComparison(new Date());
                       
                       return (
                         <div 
                           key={dateIndex} 
-                          className={`border-r border-gray-200 last:border-r-0 relative ${cellHeight} ${
+                          className={`border-r border-gray-200 last:border-r-0 relative ${MIN_CELL_HEIGHT_CLASS} ${
                             isToday ? 'bg-blue-50 bg-opacity-30' : ''
                           }`}
                         >
@@ -1075,13 +1109,17 @@ const App = () => {
           </div>
         </div>
         
-        <form onSubmit={editingBooking ? handleUpdateBooking : handleBookingSubmit} className="p-6">
+        <form 
+          key={editingBooking ? `edit-${editingBooking._id}` : 'new-booking'}
+          onSubmit={editingBooking ? handleUpdateBooking : handleBookingSubmit} 
+          className="p-6"
+        >
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Facility</label>
               <select
                 value={bookingForm.facility}
-                onChange={(e) => setBookingForm({...bookingForm, facility: e.target.value})}
+                onChange={(e) => handleFormChange('facility', e.target.value)}
                 className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 required
               >
@@ -1097,7 +1135,7 @@ const App = () => {
               <input
                 type="date"
                 value={bookingForm.date}
-                onChange={(e) => setBookingForm({...bookingForm, date: e.target.value})}
+                onChange={(e) => handleFormChange('date', e.target.value)}
                 className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 required
               />
@@ -1109,7 +1147,7 @@ const App = () => {
               <label className="block text-sm font-medium text-gray-700 mb-2">Start Time</label>
               <select
                 value={bookingForm.startTime}
-                onChange={(e) => setBookingForm({...bookingForm, startTime: e.target.value})}
+                onChange={(e) => handleFormChange('startTime', e.target.value)}
                 className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 required
               >
@@ -1124,7 +1162,7 @@ const App = () => {
               <label className="block text-sm font-medium text-gray-700 mb-2">End Time</label>
               <select
                 value={bookingForm.endTime}
-                onChange={(e) => setBookingForm({...bookingForm, endTime: e.target.value})}
+                onChange={(e) => handleFormChange('endTime', e.target.value)}
                 className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 required
               >
@@ -1139,9 +1177,10 @@ const App = () => {
           <div className="mb-4">
             <label className="block text-sm font-medium text-gray-700 mb-2">Purpose</label>
             <input
+              ref={purposeInputRef}
               type="text"
               value={bookingForm.purpose}
-              onChange={(e) => setBookingForm({...bookingForm, purpose: e.target.value})}
+              onChange={(e) => handleFormChange('purpose', e.target.value)}
               placeholder="e.g., Basketball Training, Team Meeting"
               className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               required
@@ -1152,7 +1191,7 @@ const App = () => {
             <label className="block text-sm font-medium text-gray-700 mb-2">Recurring Booking</label>
             <select
               value={bookingForm.recurring}
-              onChange={(e) => setBookingForm({...bookingForm, recurring: e.target.value})}
+              onChange={(e) => handleFormChange('recurring', e.target.value)}
               className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="none">No Recurrence</option>
@@ -1165,7 +1204,18 @@ const App = () => {
           <div className="flex items-center justify-end space-x-3">
             <button
               type="button"
-              onClick={() => setShowBookingModal(false)}
+              onClick={() => {
+                setShowBookingModal(false);
+                setEditingBooking(null);
+                setBookingForm({
+                  facility: '',
+                  date: new Date().toISOString().split('T')[0], // Default to today
+                  startTime: '09:00',
+                  endTime: '10:00',
+                  purpose: '',
+                  recurring: 'none'
+                });
+              }}
               className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
             >
               Cancel
@@ -1276,8 +1326,8 @@ const App = () => {
     )
   );
 
-  // Show loading state
-  if (loading) {
+  // Show loading state for data
+  if (dataLoading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -1290,7 +1340,7 @@ const App = () => {
   }
 
   // Show error state
-  if (error) {
+  if (dataError) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center max-w-md mx-auto p-6">
@@ -1298,7 +1348,7 @@ const App = () => {
             <X className="w-8 h-8 text-red-600" />
           </div>
           <h2 className="text-xl font-semibold text-gray-700 mb-2">Connection Error</h2>
-          <p className="text-gray-500 mb-4">{error}</p>
+          <p className="text-gray-500 mb-4">{dataError}</p>
           <button
             onClick={refreshData}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -1341,11 +1391,31 @@ const App = () => {
             </div>
           </div>
         )}
+        
+        {currentView === 'map' && (
+          <div className="h-screen">
+            <MapView 
+              facilities={facilities}
+              bookings={bookings}
+              onFacilityClick={setSelectedFacility}
+              onBookingClick={(booking) => console.log(booking)}
+              onNewBooking={() => setShowBookingModal(true)}
+            />
+          </div>
+        )}
       </div>
       
       {showBookingModal && <BookingModal />}
       {selectedFacility && <FacilityDetailModal />}
     </div>
+  );
+};
+
+const App = () => {
+  return (
+    <AuthProvider>
+      <AppContent />
+    </AuthProvider>
   );
 };
 

@@ -100,9 +100,7 @@ const logout = () => {
   setToken(null);
   setUser(null);
   setError(null);
-  
-  // Redirect to login page
-  window.location.reload(); 
+  // Do not hard-refresh; App should render auth screens when user is null
 };
 
   // Check if user has specific role
@@ -128,7 +126,9 @@ const logout = () => {
 
   // Check if user can book facilities
   const canBook = () => {
-    return isAdmin() || (isCollaborator() && isVerified());
+    // Admins can always book; collaborators must be verified and active
+    if (isAdmin()) return true;
+    return isCollaborator() && user?.verified === true && user?.isActive !== false;
   };
 
   // Check if user can manage other users

@@ -29,9 +29,7 @@ router.get('/:id', async (req, res) => {
 // POST create new facility
 router.post('/', [
   body('name').notEmpty().withMessage('Name is required'),
-  body('capacity').isInt({ min: 1 }).withMessage('Capacity must be a positive number'),
-  body('size').notEmpty().withMessage('Size is required'),
-  body('status').isIn(['available', 'booked', 'maintenance']).withMessage('Invalid status')
+  body('status').isIn(['open', 'closed']).withMessage('Invalid status')
 ], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -50,9 +48,7 @@ router.post('/', [
 // PUT update facility
 router.put('/:id', [
   body('name').notEmpty().withMessage('Name is required'),
-  body('capacity').isInt({ min: 1 }).withMessage('Capacity must be a positive number'),
-  body('size').notEmpty().withMessage('Size is required'),
-  body('status').isIn(['available', 'booked', 'maintenance']).withMessage('Invalid status')
+  body('status').isIn(['open', 'closed']).withMessage('Invalid status')
 ], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {

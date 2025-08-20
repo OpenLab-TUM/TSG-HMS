@@ -147,14 +147,21 @@ router.post('/login', [
       }
     }
 
-    // Check if collaborator is verified
+    // Blocked users cannot login (admins exempt)
+    if (user.role !== 'admin' && user.isActive === false) {
+      return res.status(401).json({ 
+        message: 'Your account has been blocked. Please contact an administrator.' 
+      });
+    }
+
+    // Collaborators must be verified to login
     if (user.role === 'collaborator' && !user.verified) {
       return res.status(401).json({ 
         message: 'Your account is pending verification. Please wait for admin approval.' 
       });
     }
 
-    // Check if user is active (admins can always login)
+    // Ensure status is active for non-admins
     if (user.role !== 'admin' && user.status !== 'active') {
       return res.status(401).json({ 
         message: 'Your account is not active. Please contact an administrator.' 
@@ -190,7 +197,8 @@ router.post('/login', [
         email: user.email,
         role: user.role,
         verified: user.verified,
-        status: user.status
+        status: user.status,
+        isActive: user.isActive !== false
       }
     });
 

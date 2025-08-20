@@ -45,6 +45,32 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+// Middleware to ensure user can create bookings (verified, active)
+async function ensureCanBook(req, res, next) {
+  try {
+    const { user } = req.body;
+    if (!user) {
+      return res.status(400).json({ message: 'User is required' });
+    }
+    const User = require('../models/User');
+    const u = await User.findById(user).select('role verified isActive');
+    if (!u) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    if (u.role !== 'admin') {
+      if (u.isActive === false) {
+        return res.status(403).json({ message: 'Blocked users cannot create bookings' });
+      }
+      if (!u.verified) {
+        return res.status(403).json({ message: 'Unverified users cannot create bookings' });
+      }
+    }
+    return next();
+  } catch (err) {
+    return res.status(500).json({ message: 'Server error', error: err.message });
+  }
+}
+
 // POST create new booking
 router.post('/', [
   body('facility').notEmpty().withMessage('Facility is required'),
@@ -53,7 +79,7 @@ router.post('/', [
   body('endTime').notEmpty().withMessage('End time is required'),
   body('user').notEmpty().withMessage('User is required'),
   body('purpose').notEmpty().withMessage('Purpose is required')
-], async (req, res) => {
+], ensureCanBook, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });

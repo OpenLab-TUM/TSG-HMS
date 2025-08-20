@@ -33,6 +33,11 @@ const userSchema = new mongoose.Schema({
     enum: ['admin', 'collaborator'],
     default: 'collaborator'
   },
+  // Soft-delete flag
+  isActive: {
+    type: Boolean,
+    default: true
+  },
   verified: {
     type: Boolean,
     default: false

@@ -31,15 +31,41 @@ const AppContent = () => {
   const [facilities, setFacilities] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [users, setUsers] = useState([]);
+  // Users page filters
+  const [userVerifiedFilter, setUserVerifiedFilter] = useState('all'); // all | verified | unverified
+  const [userActiveFilter, setUserActiveFilter] = useState('all'); // all | active | blocked
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [showUserBookings, setShowUserBookings] = useState(false);
   const [dataLoading, setDataLoading] = useState(false);
   const [dataError, setDataError] = useState(null);
   const [showAuth, setShowAuth] = useState('login'); // 'login' or 'register'
+  const [showFacilityModal, setShowFacilityModal] = useState(false);
+  const [editingFacility, setEditingFacility] = useState(null);
+  const [facilityForm, setFacilityForm] = useState({
+    name: '',
+    status: 'open',
+    equipmentList: [''],
+    openingHoursGrid: generateDefaultOpeningGrid()
+  });
 
   const timeSlots = useMemo(() => [
     '06:00', '07:00', '08:00', '09:00', '10:00', '11:00',
     '12:00', '13:00', '14:00', '15:00', '16:00', '17:00',
     '18:00', '19:00', '20:00', '21:00', '22:00'
   ], []);
+
+  // Utility to build a default opening-hours grid (07:00-22:00 half-hours)
+  function generateDefaultOpeningGrid() {
+    return {
+      monday: Array(30).fill(true),
+      tuesday: Array(30).fill(true),
+      wednesday: Array(30).fill(true),
+      thursday: Array(30).fill(true),
+      friday: Array(30).fill(true),
+      saturday: Array(30).fill(true),
+      sunday: Array(30).fill(true)
+    };
+  }
 
   // Fetch data from API AFTER user is authenticated
   useEffect(() => {
@@ -243,8 +269,132 @@ const AppContent = () => {
     }
   };
 
+  // Facility CRUD helpers
+  const openCreateFacility = () => {
+    setEditingFacility(null);
+    setFacilityForm({
+      name: '',
+      status: 'open',
+      equipmentList: [''],
+      openingHoursGrid: generateDefaultOpeningGrid()
+    });
+    setShowFacilityModal(true);
+  };
+
+  const openEditFacility = (facility) => {
+    setEditingFacility(facility);
+    setFacilityForm({
+      name: facility.name || '',
+      // Normalize legacy statuses coming from older seed data
+      status: (facility.status === 'available' ? 'open' : facility.status) || 'open',
+      equipmentList: Array.isArray(facility.equipment) && facility.equipment.length > 0 ? facility.equipment : [''],
+      openingHoursGrid: facility.openingHoursGrid || generateDefaultOpeningGrid()
+    });
+    setShowFacilityModal(true);
+  };
+
+  const handleFacilityChange = (field, value) => {
+    setFacilityForm(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleSaveFacility = async (e) => {
+    e.preventDefault();
+    try {
+      const payload = {
+        name: facilityForm.name.trim(),
+        status: facilityForm.status,
+        equipment: facilityForm.equipmentList.map(e => (e || '').trim()).filter(Boolean),
+        openingHoursGrid: facilityForm.openingHoursGrid
+      };
+
+      if (editingFacility) {
+        await api.updateFacility(editingFacility._id, payload);
+      } else {
+        await api.createFacility(payload);
+      }
+      await refreshData();
+      setShowFacilityModal(false);
+      setEditingFacility(null);
+    } catch (error) {
+      console.error('Error saving facility:', error);
+      alert('Failed to save facility: ' + (error.message || 'Unknown error'));
+    }
+  };
+
+  const handleDeleteFacility = async (facilityId) => {
+    if (!window.confirm('Are you sure you want to delete this facility?')) return;
+    try {
+      await api.deleteFacility(facilityId);
+      await refreshData();
+    } catch (error) {
+      console.error('Error deleting facility:', error);
+      alert('Failed to delete facility: ' + (error.message || 'Unknown error'));
+    }
+  };
+
+  // Admin user management actions
+  const handleUnverifyUser = async (userId) => {
+    if (!canManageUsers()) return;
+    const target = users.find(u => u._id === userId);
+    if (target?.role === 'admin') return;
+    try {
+      await api.updateUser(userId, { verified: false });
+      await refreshData();
+    } catch (error) {
+      console.error('Error unverifying user:', error);
+      alert('Failed to unverify user: ' + (error.message || 'Unknown error'));
+    }
+  };
+
+  const handleVerifyUser = async (userId) => {
+    if (!canManageUsers()) return;
+    const target = users.find(u => u._id === userId);
+    if (target?.role === 'admin') return;
+    try {
+      await api.updateUser(userId, { verified: true });
+      await refreshData();
+    } catch (error) {
+      console.error('Error verifying user:', error);
+      alert('Failed to verify user: ' + (error.message || 'Unknown error'));
+    }
+  };
+
+  const handleDeactivateUser = async (userId) => {
+    if (!canManageUsers()) return;
+    const target = users.find(u => u._id === userId);
+    if (target?.role === 'admin') return;
+    if (!window.confirm('Block this user? They will no longer be able to sign in.')) return;
+    try {
+      await api.deleteUser(userId);
+      await refreshData();
+    } catch (error) {
+      console.error('Error deactivating user:', error);
+      alert('Failed to block user: ' + (error.message || 'Unknown error'));
+    }
+  };
+
+  const handleReactivateUser = async (userId) => {
+    if (!canManageUsers()) return;
+    const target = users.find(u => u._id === userId);
+    if (target?.role === 'admin') return;
+    try {
+      await api.updateUser(userId, { isActive: true });
+      await refreshData();
+    } catch (error) {
+      console.error('Error reactivating user:', error);
+      alert('Failed to unblock user: ' + (error.message || 'Unknown error'));
+    }
+  };
+
+  const openUserBookings = (u) => {
+    setSelectedUser(u);
+    setShowUserBookings(true);
+  };
+
   const getStatusColor = (status) => {
     switch(status) {
+      case 'open': return 'bg-green-100 text-green-800';
+      case 'closed': return 'bg-red-100 text-red-800';
       case 'available': return 'bg-green-100 text-green-800';
       case 'booked': return 'bg-amber-100 text-amber-800';
       case 'maintenance': return 'bg-red-100 text-red-800';
@@ -293,13 +443,104 @@ const AppContent = () => {
     });
   };
 
-  const filteredBookings = bookings.filter(booking => {
+  // Determine if a booking is in the past (based on booking end time on its date)
+  const isBookingPast = (booking) => {
+    try {
+      const endDateTime = new Date(booking.date);
+      const [hh, mm] = String(booking.endTime || '00:00').split(':').map(Number);
+      endDateTime.setHours(hh || 0, mm || 0, 0, 0);
+      return endDateTime < new Date();
+    } catch (e) {
+      return false;
+    }
+  };
+
+  // Limit visibility by role:
+  // - Admin: all bookings
+  // - Collaborator: only their own past bookings
+  const baseBookings = isAdmin() ? bookings : bookings.filter(b => b.user === user?._id && isBookingPast(b));
+
+  const filteredBookings = baseBookings.filter(booking => {
     const matchesSearch = booking.facilityName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           booking.userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           booking.purpose.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesFilter = filterStatus === 'all' || booking.status === filterStatus;
     return matchesSearch && matchesFilter;
   });
+
+  // Helpers for privacy masking in timetable for collaborators
+  const shouldMaskBooking = (booking) => {
+    return !isAdmin() && booking.user !== user?._id;
+  };
+
+  const getMaskedTitle = (booking) => {
+    const base = `${booking.startTime}-${booking.endTime}`;
+    return shouldMaskBooking(booking)
+      ? `${base} • Booked by ${booking.userName}`
+      : `${base} • ${booking.userName}${booking.purpose ? ` • ${booking.purpose}` : ''}`;
+  };
+
+  // Reusable component to render half-hour opening grid
+  const OpeningHoursGrid = ({ grid, onToggle, readOnly = false }) => {
+    const scrollRef = useRef(null);
+    const days = [
+      { key: 'monday', label: 'Mon' },
+      { key: 'tuesday', label: 'Tue' },
+      { key: 'wednesday', label: 'Wed' },
+      { key: 'thursday', label: 'Thu' },
+      { key: 'friday', label: 'Fri' },
+      { key: 'saturday', label: 'Sat' },
+      { key: 'sunday', label: 'Sun' },
+    ];
+    const slots = Array.from({ length: 30 }, (_, i) => {
+      const hour = 7 + Math.floor(i / 2);
+      const minute = i % 2 === 0 ? '00' : '30';
+      return `${String(hour).padStart(2, '0')}:${minute}`;
+    });
+
+    return (
+      <div ref={scrollRef} className="bg-gray-50 rounded-lg p-3 max-h-96 overflow-y-auto overflow-x-hidden">
+        <div>
+          <div className="grid grid-cols-8 gap-2 text-xs mb-2">
+            <div className="font-medium text-gray-700">Time</div>
+            {days.map(d => (
+              <div key={d.key} className="font-medium text-gray-700 text-center">{d.label}</div>
+            ))}
+          </div>
+          {slots.map((label, slotIdx) => (
+            <div key={label} className="grid grid-cols-8 gap-2 items-center mb-1">
+              <div className="text-gray-600 w-16">{label}</div>
+              {days.map(d => {
+                const isOpen = grid?.[d.key]?.[slotIdx] !== false;
+                const common = `h-8 rounded transition-colors ${isOpen ? 'bg-green-200' : 'bg-red-200'}`;
+                if (readOnly) {
+                  return <div key={`${d.key}-${slotIdx}`} className={common}></div>;
+                }
+                return (
+                  <button
+                    key={`${d.key}-${slotIdx}`}
+                    type="button"
+                    className={common}
+                    onClick={() => {
+                      const currentScroll = scrollRef.current ? scrollRef.current.scrollTop : 0;
+                      onToggle && onToggle(d.key, slotIdx);
+                      // Restore scroll after state update
+                      setTimeout(() => {
+                        if (scrollRef.current) {
+                          scrollRef.current.scrollTop = currentScroll;
+                        }
+                      }, 0);
+                    }}
+                    title={`${d.label} ${label} ${isOpen ? 'Open' : 'Closed'}`}
+                  />
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
 
   const Sidebar = () => (
     <div className="w-64 bg-gray-900 text-white h-screen fixed left-0 top-0 overflow-y-auto">
@@ -430,6 +671,15 @@ const AppContent = () => {
       </div>
       
       <div className="flex items-center space-x-4">
+        {currentView === 'facilities' && canManageFacilities() && (
+          <button
+            onClick={openCreateFacility}
+            className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+          >
+            <Plus className="w-4 h-4" />
+            <span>New Facility</span>
+          </button>
+        )}
         {currentView === 'timetable' && (
           <div className="flex items-center space-x-2">
             <button
@@ -520,30 +770,7 @@ const AppContent = () => {
           }).length}</h3>
           <p className="text-sm text-gray-600">Bookings</p>
         </div>
-        
-        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-          <div className="flex items-center justify-between mb-4">
-            <div className="w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center">
-              <Clock className="w-6 h-6 text-amber-600" />
-            </div>
-            <span className="text-xs text-gray-500">Rate</span>
-          </div>
-          <h3 className="text-2xl font-bold text-gray-900">73%</h3>
-          <p className="text-sm text-gray-600">Utilization</p>
-        </div>
-        
-        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-          <div className="flex items-center justify-between mb-4">
-            <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
-              <Users className="w-6 h-6 text-purple-600" />
-            </div>
-            <span className="text-xs text-gray-500">Active</span>
-          </div>
-          <h3 className="text-2xl font-bold text-gray-900">24</h3>
-          <p className="text-sm text-gray-600">Users</p>
-        </div>
       </div>
-      
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="bg-white rounded-xl shadow-sm border border-gray-200">
           <div className="p-6 border-b border-gray-200 flex items-center justify-between">
@@ -601,13 +828,10 @@ const AppContent = () => {
                   <div className="flex items-center justify-between mb-2">
                     <h4 className="font-medium text-gray-900 text-sm">{facility.name}</h4>
                     <div className={`w-3 h-3 rounded-full ${
-                      facility.status === 'available' ? 'bg-green-500' :
-                      facility.status === 'booked' ? 'bg-amber-500' :
-                      'bg-red-500'
+                      facility.status === 'open' ? 'bg-green-500' : 'bg-red-500'
                     }`}></div>
                   </div>
-                  <p className="text-xs text-gray-600">{facility.capacity} people</p>
-                  <p className="text-xs text-gray-600">{facility.size}</p>
+                  <p className="text-xs text-gray-600 capitalize">{facility.status}</p>
                 </div>
               ))}
             </div>
@@ -764,9 +988,7 @@ const AppContent = () => {
               <div className="h-32 bg-gradient-to-br from-blue-500 to-blue-600 relative">
                 <div className="absolute top-4 right-4">
                   <div className={`w-3 h-3 rounded-full ${
-                    facility.status === 'available' ? 'bg-green-400' :
-                    facility.status === 'booked' ? 'bg-amber-400' :
-                    'bg-red-400'
+                    facility.status === 'open' ? 'bg-green-400' : 'bg-red-400'
                   } ring-2 ring-white`}></div>
                 </div>
                 <div className="absolute bottom-4 left-4 text-white">
@@ -776,12 +998,8 @@ const AppContent = () => {
               <div className="p-6">
                 <div className="grid grid-cols-2 gap-4 mb-4">
                   <div>
-                    <p className="text-xs text-gray-500 mb-1">Capacity</p>
-                    <p className="font-medium text-gray-900">{facility.capacity} people</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Size</p>
-                    <p className="font-medium text-gray-900">{facility.size}</p>
+                    <p className="text-xs text-gray-500 mb-1">Status</p>
+                    <p className="font-medium text-gray-900 capitalize">{facility.status}</p>
                   </div>
                 </div>
                 <div className="mb-4">
@@ -794,12 +1012,30 @@ const AppContent = () => {
                     ))}
                   </div>
                 </div>
-                <button
-                  onClick={() => setSelectedFacility(facility)}
-                  className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
-                >
-                  View Details
-                </button>
+                <div className="flex items-center justify-between gap-2">
+                  <button
+                    onClick={() => setSelectedFacility(facility)}
+                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
+                  >
+                    View Details
+                  </button>
+                  {canManageFacilities() && (
+                    <>
+                      <button
+                        onClick={() => openEditFacility(facility)}
+                        className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDeleteFacility(facility._id)}
+                        className="px-4 py-2 border border-red-300 text-red-600 rounded-lg text-sm hover:bg-red-50"
+                      >
+                        Delete
+                      </button>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           ))}
@@ -811,8 +1047,6 @@ const AppContent = () => {
               <thead>
                 <tr className="border-b border-gray-200">
                   <th className="text-left p-4 font-medium text-gray-700">Facility Name</th>
-                  <th className="text-left p-4 font-medium text-gray-700">Capacity</th>
-                  <th className="text-left p-4 font-medium text-gray-700">Size</th>
                   <th className="text-left p-4 font-medium text-gray-700">Status</th>
                   <th className="text-left p-4 font-medium text-gray-700">Equipment</th>
                   <th className="text-left p-4 font-medium text-gray-700">Actions</th>
@@ -822,8 +1056,6 @@ const AppContent = () => {
                 {facilities.map(facility => (
                   <tr key={facility._id} className="border-b border-gray-100 hover:bg-gray-50">
                     <td className="p-4 font-medium">{facility.name}</td>
-                    <td className="p-4">{facility.capacity} people</td>
-                    <td className="p-4">{facility.size}</td>
                     <td className="p-4">
                       <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(facility.status)}`}>
                         {facility.status}
@@ -842,12 +1074,30 @@ const AppContent = () => {
                       </div>
                     </td>
                     <td className="p-4">
-                      <button
-                        onClick={() => setSelectedFacility(facility)}
-                        className="text-blue-600 hover:text-blue-700 text-sm font-medium"
-                      >
-                        View Details
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => setSelectedFacility(facility)}
+                          className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                        >
+                          View Details
+                        </button>
+                        {canManageFacilities() && (
+                          <>
+                            <button
+                              onClick={() => openEditFacility(facility)}
+                              className="text-gray-700 hover:text-gray-900 text-sm font-medium"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleDeleteFacility(facility._id)}
+                              className="text-red-600 hover:text-red-700 text-sm font-medium"
+                            >
+                              Delete
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -862,6 +1112,11 @@ const AppContent = () => {
   const TimetableView = () => {
     const weekDates = getWeekDates(selectedWeek);
     const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    const [facilityFilter, setFacilityFilter] = useState('all');
+    const visibleFacilities = useMemo(
+      () => (facilityFilter === 'all' ? facilities : facilities.filter(f => f._id === facilityFilter)),
+      [facilityFilter, facilities]
+    );
     
     // Helper function to get all bookings for a facility on a specific date
     const getBookingsForFacilityAndDate = (facility, date) => {
@@ -874,59 +1129,195 @@ const AppContent = () => {
 
     // Rows should auto-grow based on content; enforce only a minimum height per cell
     const MIN_CELL_HEIGHT_CLASS = 'min-h-16';
+    // Helpers for single-facility timeline layout
+    const startOfDayMin = 6 * 60; // 06:00
+    const endOfDayMin = 22 * 60; // 22:00
+    const hourHeightPx = 48; // px per hour in the timeline
+    const totalHours = (endOfDayMin - startOfDayMin) / 60; // 16 hours
+    const hours = Array.from({ length: totalHours + 1 }, (_, i) => 6 + i); // 06..22 labels
+    const parseTimeToMinutes = (t) => {
+      const [hh, mm] = (t || '00:00').split(':').map(Number);
+      return (hh || 0) * 60 + (mm || 0);
+    };
+    const computeBlockStyle = (startTime, endTime) => {
+      const s = Math.max(parseTimeToMinutes(startTime), startOfDayMin);
+      const e = Math.min(parseTimeToMinutes(endTime), endOfDayMin);
+      const top = ((s - startOfDayMin) / 60) * hourHeightPx;
+      const height = Math.max(20, ((e - s) / 60) * hourHeightPx - 2);
+      return { top: `${top}px`, height: `${height}px` };
+    };
     
     return (
       <div className="p-8">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-900">Weekly Timetable</h3>
+          <div className="flex items-center space-x-2">
+            <label className="text-sm text-gray-600">Facility:</label>
+            <select
+              value={facilityFilter}
+              onChange={(e) => setFacilityFilter(e.target.value)}
+              className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="all">All Facilities</option>
+              {facilities.map((f) => (
+                <option key={f._id} value={f._id}>{f.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <div className="min-w-[1400px]">
-              {/* Header with days */}
-              <div className="grid grid-cols-8 border-b border-gray-200 bg-gray-50">
-                <div className="p-4 font-medium text-gray-700 border-r border-gray-200">
-                  <div className="text-lg font-semibold">Facilities</div>
-                  <div className="text-sm text-gray-500 mt-1">Click + to book</div>
+          {facilityFilter !== 'all' ? (
+            <div className="overflow-x-auto">
+              <div className="min-w-[1000px] p-4">
+                <div className="grid grid-cols-8 gap-0 border-b border-gray-200 mb-2">
+                  <div className="p-2 font-medium text-gray-700 bg-gray-50">Time</div>
+                  {dayNames.map((d, i) => (
+                    <div key={d} className="p-2 text-center font-medium text-gray-700 bg-gray-50">
+                      <div>{d}</div>
+                      <div className="text-xs text-gray-500">{weekDates[i].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+                    </div>
+                  ))}
                 </div>
-                {weekDates.map((date, index) => (
-                  <div key={index} className="p-4 text-center border-r border-gray-200 last:border-r-0">
-                    <div className="font-medium text-gray-900">{dayNames[index]}</div>
-                    <div className="text-sm text-gray-600">
-                      {date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                    </div>
-                    {formatDateForComparison(date) === formatDateForComparison(new Date()) && (
-                      <div className="mt-1 inline-block px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full">
-                        Today
+                <div className="grid grid-cols-8 gap-0">
+                  {/* Time Axis */}
+                  <div className="relative border-r border-gray-200 bg-gray-50" style={{ height: `${totalHours * hourHeightPx}px` }}>
+                    {hours.map((h, idx) => (
+                      <div key={h} className="absolute left-0 right-0 text-xs text-gray-500 pr-2" style={{ top: `${idx * hourHeightPx - 6}px` }}>
+                        <div className="flex items-center justify-end h-0">
+                          <span>{String(h).padStart(2, '0')}:00</span>
+                        </div>
+                        <div className="border-t border-gray-200 absolute left-0 right-0" style={{ top: '6px' }}></div>
                       </div>
-                    )}
+                    ))}
                   </div>
-                ))}
+                  {/* Day Columns */}
+                  {weekDates.map((date, i) => {
+                    const sel = facilities.find(f => f._id === facilityFilter);
+                    const dayBookings = sel ? getBookingsForFacilityAndDate(sel, date) : [];
+                    return (
+                      <div key={i} className="relative border-r last:border-r-0 border-gray-200" style={{ height: `${totalHours * hourHeightPx}px` }}>
+                        {hours.map((h, idx) => (
+                          <div key={h} className="absolute left-0 right-0 border-t border-gray-100" style={{ top: `${idx * hourHeightPx}px` }}></div>
+                        ))}
+                        {dayBookings.map((b) => {
+                          const style = computeBlockStyle(b.startTime, b.endTime);
+                          const isConfirmed = b.status === 'confirmed';
+                          const masked = shouldMaskBooking(b);
+                          return (
+                            <div
+                              key={b._id}
+                              className={`absolute left-1 right-1 rounded-md px-2 py-1 shadow-sm overflow-hidden ${isConfirmed ? 'bg-blue-500 text-white' : 'bg-amber-500 text-white'}`}
+                              style={style}
+                              title={getMaskedTitle(b)}
+                            >
+                              <div className="text-[10px] opacity-90">{b.startTime}-{b.endTime}</div>
+                              <div className="text-xs font-medium truncate">{masked ? 'Booked' : (b.purpose || b.userName)}</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-              
-              {/* Time slots and facilities */}
-              {facilities.map((facility, facilityIndex) => (
-                <div key={facility._id} className={`${facilityIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
-                  <div className="grid grid-cols-8 border-b border-gray-200">
-                    <div className="p-4 font-medium text-gray-900 border-r border-gray-200 bg-gray-50">
-                      <div className="text-lg font-semibold">{facility.name}</div>
-                      <div className="text-sm text-gray-500 mt-1">Cap: {facility.capacity}</div>
-                      <div className="text-xs text-gray-400 mt-1">{facility.size}</div>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <div className="min-w-[1400px]">
+                {/* Header with days */}
+                <div className="grid grid-cols-8 border-b border-gray-200 bg-gray-50">
+                  <div className="p-4 font-medium text-gray-700 border-r border-gray-200">
+                    <div className="text-lg font-semibold">Facilities</div>
+                    <div className="text-sm text-gray-500 mt-1">Click + to book</div>
+                  </div>
+                  {weekDates.map((date, index) => (
+                    <div key={index} className="p-4 text-center border-r border-gray-200 last:border-r-0">
+                      <div className="font-medium text-gray-900">{dayNames[index]}</div>
+                      <div className="text-sm text-gray-600">
+                        {date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                      </div>
+                      {formatDateForComparison(date) === formatDateForComparison(new Date()) && (
+                        <div className="mt-1 inline-block px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full">
+                          Today
+                        </div>
+                      )}
                     </div>
-                    
-                    {weekDates.map((date, dateIndex) => {
-                      const dayBookings = getBookingsForFacilityAndDate(facility, date);
-                      const isToday = formatDateForComparison(date) === formatDateForComparison(new Date());
+                  ))}
+                </div>
+                
+                {/* Time slots and facilities */}
+                {visibleFacilities.map((facility, facilityIndex) => (
+                  <div key={facility._id} className={`${facilityIndex % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                    <div className="grid grid-cols-8 border-b border-gray-200">
+                      <div className="p-4 font-medium text-gray-900 border-r border-gray-200 bg-gray-50">
+                        <div className="text-lg font-semibold">{facility.name}</div>
+                        <div className="text-sm text-gray-500 mt-1 capitalize">Status: {facility.status}</div>
+                      </div>
                       
-                      return (
-                        <div 
-                          key={dateIndex} 
-                          className={`border-r border-gray-200 last:border-r-0 relative ${MIN_CELL_HEIGHT_CLASS} ${
-                            isToday ? 'bg-blue-50 bg-opacity-30' : ''
-                          }`}
-                        >
-                          {dayBookings.length === 0 ? (
-                            // Empty day - show "No events" message
-                            <div className="h-full flex flex-col items-center justify-center p-2">
-                              <div className="text-center">
-                                <div className="text-gray-400 text-xs mb-2">No events</div>
+                      {weekDates.map((date, dateIndex) => {
+                        const dayBookings = getBookingsForFacilityAndDate(facility, date);
+                        const isToday = formatDateForComparison(date) === formatDateForComparison(new Date());
+                        
+                        return (
+                          <div 
+                            key={dateIndex} 
+                            className={`border-r border-gray-200 last:border-r-0 relative ${MIN_CELL_HEIGHT_CLASS} ${
+                              isToday ? 'bg-blue-50 bg-opacity-30' : ''
+                            }`}
+                          >
+                            {dayBookings.length === 0 ? (
+                              // Empty day - show "No events" message
+                              <div className="h-full flex flex-col items-center justify-center p-2">
+                                <div className="text-center">
+                                  <div className="text-gray-400 text-xs mb-2">No events</div>
+                                  <button
+                                    onClick={() => {
+                                      setBookingForm({
+                                        ...bookingForm,
+                                        facility: facility.name,
+                                        date: formatDateForComparison(date),
+                                        startTime: '09:00',
+                                        endTime: '10:00'
+                                      });
+                                      setShowBookingModal(true);
+                                    }}
+                                    className="w-8 h-8 bg-green-100 hover:bg-green-200 rounded-full transition-colors flex items-center justify-center text-green-600 hover:text-green-700"
+                                    title="Add booking"
+                                  >
+                                    <Plus className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              // Day with bookings
+                              <div className="h-full p-2 space-y-1">
+                                {dayBookings.map((booking, bookingIndex) => {
+                                  const masked = shouldMaskBooking(booking);
+                                  return (
+                                    <div
+                                      key={booking._id}
+                                      className={`rounded-lg p-2 cursor-pointer hover:opacity-90 transition-all transform hover:scale-105 ${
+                                        booking.status === 'confirmed' 
+                                          ? 'bg-blue-500 text-white shadow-md' : 'bg-amber-500 text-white shadow-md'
+                                      }`}
+                                      title={getMaskedTitle(booking)}
+                                    >
+                                      <div className="font-medium text-xs truncate">
+                                        {booking.startTime}-{booking.endTime}
+                                      </div>
+                                      <div className="text-xs opacity-90 truncate">
+                                        {masked ? 'Booked' : booking.userName}
+                                      </div>
+                                      {!masked && booking.purpose && (
+                                        <div className="text-xs opacity-75 truncate mt-1">
+                                          {booking.purpose}
+                                        </div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                                
+                                {/* Add booking button for days with existing bookings */}
                                 <button
                                   onClick={() => {
                                     setBookingForm({
@@ -938,88 +1329,44 @@ const AppContent = () => {
                                     });
                                     setShowBookingModal(true);
                                   }}
-                                  className="w-8 h-8 bg-green-100 hover:bg-green-200 rounded-full transition-colors flex items-center justify-center text-green-600 hover:text-green-700"
-                                  title="Add booking"
+                                  className="w-6 h-6 bg-green-100 hover:bg-green-200 rounded-full transition-colors flex items-center justify-center text-green-600 hover:text-green-700 mt-1"
+                                  title="Add another booking"
                                 >
-                                  <Plus className="w-4 h-4" />
+                                  <Plus className="w-3 h-3" />
                                 </button>
                               </div>
-                            </div>
-                          ) : (
-                            // Day with bookings
-                            <div className="h-full p-2 space-y-1">
-                              {dayBookings.map((booking, bookingIndex) => (
-                                <div
-                                  key={booking._id}
-                                  className={`rounded-lg p-2 cursor-pointer hover:opacity-90 transition-all transform hover:scale-105 ${
-                                    booking.status === 'confirmed' 
-                                      ? 'bg-blue-500 text-white shadow-md' : 'bg-amber-500 text-white shadow-md'
-                                  }`}
-                                  title={`${booking.startTime}-${booking.endTime} - ${booking.userName} - ${booking.purpose}`}
-                                >
-                                  <div className="font-medium text-xs truncate">
-                                    {booking.startTime}-{booking.endTime}
-                                  </div>
-                                  <div className="text-xs opacity-90 truncate">
-                                    {booking.userName}
-                                  </div>
-                                  {booking.purpose && (
-                                    <div className="text-xs opacity-75 truncate mt-1">
-                                      {booking.purpose}
-                                    </div>
-                                  )}
-                                </div>
-                              ))}
-                              
-                              {/* Add booking button for days with existing bookings */}
-                              <button
-                                onClick={() => {
-                                  setBookingForm({
-                                    ...bookingForm,
-                                    facility: facility.name,
-                                    date: formatDateForComparison(date),
-                                    startTime: '09:00',
-                                    endTime: '10:00'
-                                  });
-                                  setShowBookingModal(true);
-                                }}
-                                className="w-6 h-6 bg-green-100 hover:bg-green-200 rounded-full transition-colors flex items-center justify-center text-green-600 hover:text-green-700 mt-1"
-                                title="Add another booking"
-                              >
-                                <Plus className="w-3 h-3" />
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
-                </div>
-              ))}
-              
-              {/* Legend */}
-              <div className="p-4 bg-gray-50 border-t border-gray-200">
-                <div className="flex items-center space-x-6 text-sm">
-                  <div className="flex items-center space-x-2">
-                    <div className="w-4 h-4 bg-blue-500 rounded shadow-sm"></div>
-                    <span className="text-gray-600">Confirmed Booking</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <div className="w-4 h-4 bg-amber-500 rounded shadow-sm"></div>
-                    <span className="text-gray-600">Pending Booking</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <div className="w-4 h-4 bg-green-100 rounded shadow-sm"></div>
-                    <span className="text-gray-600">Available Slot</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <div className="w-4 h-4 bg-blue-50 rounded shadow-sm"></div>
-                    <span className="text-gray-600">Today</span>
+                ))}
+                
+                {/* Legend */}
+                <div className="p-4 bg-gray-50 border-t border-gray-200">
+                  <div className="flex items-center space-x-6 text-sm">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-4 h-4 bg-blue-500 rounded shadow-sm"></div>
+                      <span className="text-gray-600">Confirmed Booking</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <div className="w-4 h-4 bg-amber-500 rounded shadow-sm"></div>
+                      <span className="text-gray-600">Pending Booking</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <div className="w-4 h-4 bg-green-100 rounded shadow-sm"></div>
+                      <span className="text-gray-600">Available Slot</span>
+                    </div>
+                    <div className="flex items-center space-x-2">
+                      <div className="w-4 h-4 bg-blue-50 rounded shadow-sm"></div>
+                      <span className="text-gray-600">Today</span>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
         
         {/* Quick Stats */}
@@ -1047,33 +1394,11 @@ const AppContent = () => {
               <div>
                 <p className="text-sm text-gray-600">Available</p>
                 <p className="text-2xl font-bold text-green-600">
-                  {facilities.filter(f => f.status === 'available').length}
+                  {facilities.filter(f => f.status === 'open').length}
                 </p>
                 <p className="text-xs text-gray-500">Facilities Now</p>
               </div>
               <MapPin className="w-8 h-8 text-green-500" />
-            </div>
-          </div>
-          
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">Peak Time</p>
-                <p className="text-2xl font-bold text-gray-900">16:00</p>
-                <p className="text-xs text-gray-500">Most Bookings</p>
-              </div>
-              <Clock className="w-8 h-8 text-amber-500" />
-            </div>
-          </div>
-          
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">Utilization</p>
-                <p className="text-2xl font-bold text-gray-900">68%</p>
-                <p className="text-xs text-gray-500">This Week</p>
-              </div>
-              <Users className="w-8 h-8 text-purple-500" />
             </div>
           </div>
         </div>
@@ -1110,7 +1435,6 @@ const AppContent = () => {
         </div>
         
         <form 
-          key={editingBooking ? `edit-${editingBooking._id}` : 'new-booking'}
           onSubmit={editingBooking ? handleUpdateBooking : handleBookingSubmit} 
           className="p-6"
         >
@@ -1124,7 +1448,7 @@ const AppContent = () => {
                 required
               >
                 <option value="">Select a facility</option>
-                {facilities.filter(f => f.status === 'available').map(facility => (
+                {facilities.filter(f => f.status === 'open').map(facility => (
                   <option key={facility._id} value={facility.name}>{facility.name}</option>
                 ))}
               </select>
@@ -1259,14 +1583,7 @@ const AppContent = () => {
                       {selectedFacility.status}
                     </span>
                   </div>
-                  <div className="flex items-center justify-between py-2 border-b border-gray-100">
-                    <span className="text-sm text-gray-600">Capacity</span>
-                    <span className="text-sm font-medium">{selectedFacility.capacity} people</span>
-                  </div>
-                  <div className="flex items-center justify-between py-2 border-b border-gray-100">
-                    <span className="text-sm text-gray-600">Size</span>
-                    <span className="text-sm font-medium">{selectedFacility.size}</span>
-                  </div>
+                  
                 </div>
               </div>
               
@@ -1284,28 +1601,10 @@ const AppContent = () => {
             
             <div>
               <h4 className="text-sm font-medium text-gray-700 mb-3">Weekly Schedule</h4>
-              <div className="bg-gray-50 rounded-lg p-4">
-                <div className="grid grid-cols-8 gap-2 text-xs">
-                  <div className="font-medium text-gray-700">Time</div>
-                  {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(day => (
-                    <div key={day} className="font-medium text-gray-700 text-center">{day}</div>
-                  ))}
-                  
-                  {['08:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00'].map(time => (
-                    <>
-                      <div key={time} className="font-medium text-gray-600">{time}</div>
-                      {[1, 2, 3, 4, 5, 6, 7].map(day => (
-                        <div
-                          key={`${time}-${day}`}
-                          className={`h-8 rounded ${
-                            Math.random() > 0.6 ? 'bg-red-200' : 'bg-green-200'
-                          }`}
-                        ></div>
-                      ))}
-                    </>
-                  ))}
-                </div>
-              </div>
+              <OpeningHoursGrid
+                grid={selectedFacility.openingHoursGrid}
+                readOnly
+              />
             </div>
             
             <div className="mt-6 flex items-center justify-end space-x-3">
@@ -1325,6 +1624,213 @@ const AppContent = () => {
       </div>
     )
   );
+
+  const UserBookingsModal = () => (
+    showUserBookings && selectedUser ? (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl mx-4 max-h-[85vh] overflow-y-auto">
+          <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+            <h3 className="text-xl font-semibold text-gray-900">{selectedUser.firstName} {selectedUser.lastName} • Previous Bookings</h3>
+            <button
+              onClick={() => { setShowUserBookings(false); setSelectedUser(null); }}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              <X className="w-5 h-5 text-gray-500" />
+            </button>
+          </div>
+          <div className="p-6">
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-gray-200 bg-gray-50">
+                    <th className="text-left p-3 text-sm font-medium text-gray-700">Date</th>
+                    <th className="text-left p-3 text-sm font-medium text-gray-700">Facility</th>
+                    <th className="text-left p-3 text-sm font-medium text-gray-700">Time</th>
+                    <th className="text-left p-3 text-sm font-medium text-gray-700">Purpose</th>
+                    <th className="text-left p-3 text-sm font-medium text-gray-700">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bookings
+                    .filter(b => b.user === selectedUser._id)
+                    .sort((a, b) => new Date(b.date) - new Date(a.date))
+                    .map(b => (
+                      <tr key={b._id} className="border-b border-gray-100">
+                        <td className="p-3 text-sm">{new Date(b.date).toLocaleDateString()}</td>
+                        <td className="p-3 text-sm">{b.facilityName}</td>
+                        <td className="p-3 text-sm">{b.startTime}-{b.endTime}</td>
+                        <td className="p-3 text-sm">{b.purpose}</td>
+                        <td className="p-3 text-sm">
+                          <span className={`px-2 py-0.5 rounded-full text-xs ${getStatusColor(b.status)}`}>{b.status}</span>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    ) : null
+  );
+
+  const FacilityModal = () => (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4">
+        <div className="p-6 border-b border-gray-200">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xl font-semibold text-gray-900">
+              {editingFacility ? 'Edit Facility' : 'Add New Facility'}
+            </h3>
+            <button
+              onClick={() => { setShowFacilityModal(false); setEditingFacility(null); }}
+              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+            >
+              <X className="w-5 h-5 text-gray-500" />
+            </button>
+          </div>
+        </div>
+        <form onSubmit={handleSaveFacility} className="p-6 space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
+              <input
+                type="text"
+                value={facilityForm.name}
+                onChange={(e) => handleFacilityChange('name', e.target.value)}
+                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+              <select
+                value={facilityForm.status}
+                onChange={(e) => handleFacilityChange('status', e.target.value)}
+                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="open">Open</option>
+                <option value="closed">Closed</option>
+              </select>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Equipment</label>
+            <div className="space-y-2">
+              {facilityForm.equipmentList.map((item, idx) => (
+                <div key={idx} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={item}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setFacilityForm(prev => ({
+                        ...prev,
+                        equipmentList: prev.equipmentList.map((it, i) => i === idx ? value : it)
+                      }));
+                    }}
+                    className="flex-1 px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    placeholder="e.g., Projector"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setFacilityForm(prev => ({
+                      ...prev,
+                      equipmentList: prev.equipmentList.filter((_, i) => i !== idx)
+                    }))}
+                    className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+                    aria-label="Remove equipment"
+                  >
+                    Remove
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                onClick={() => setFacilityForm(prev => ({ ...prev, equipmentList: [...prev.equipmentList, ''] }))}
+                className="mt-2 inline-flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm"
+              >
+                + Add Equipment
+              </button>
+            </div>
+          </div>
+          <div></div>
+          {/* Weekly opening schedule (07:00 - 22:00, 30 half-hour slots) */}
+          <div>
+            <h4 className="text-sm font-medium text-gray-700 mb-3">Weekly Schedule</h4>
+            <OpeningHoursGrid
+              grid={facilityForm.openingHoursGrid}
+              onToggle={(day, idx) => {
+                setFacilityForm(prev => ({
+                  ...prev,
+                  openingHoursGrid: {
+                    ...prev.openingHoursGrid,
+                    [day]: prev.openingHoursGrid[day].map((v, i) => i === idx ? !v : v)
+                  }
+                }));
+              }}
+            />
+          </div>
+
+          <div className="flex items-center justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={() => { setShowFacilityModal(false); setEditingFacility(null); }}
+              className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+            >
+              Save
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+
+  // If not authenticated, show auth screens
+  if (!user) {
+    return (
+      showAuth === 'login' ? (
+        <Login
+          onLogin={async (formData) => {
+            const result = await login(formData);
+            if (result?.success) {
+              setCurrentView('dashboard');
+            }
+          }}
+          onSwitchToRegister={() => {
+            setAuthError(null);
+            setShowAuth('register');
+          }}
+          loading={authLoading}
+          error={authError}
+        />
+      ) : (
+        <Register
+          onRegister={async (userData) => {
+            const result = await register(userData);
+            if (result?.success) {
+              // After successful registration, switch to login screen
+              setAuthError(null);
+              setShowAuth('login');
+            }
+          }}
+          onSwitchToLogin={() => {
+            setAuthError(null);
+            setShowAuth('login');
+          }}
+          loading={authLoading}
+          error={authError}
+        />
+      )
+    );
+  }
 
   // Show loading state for data
   if (dataLoading) {
@@ -1374,10 +1880,121 @@ const AppContent = () => {
         
         {currentView === 'users' && (
           <div className="p-8">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center">
-              <Users className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">User Management</h3>
-              <p className="text-gray-600">Manage system users and permissions</p>
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+              <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-gray-900">All Users</h3>
+                <div className="flex items-center gap-3">
+                  <div className="text-sm text-gray-500 mr-1">{users.length} total</div>
+                  <select
+                    value={userVerifiedFilter}
+                    onChange={(e) => setUserVerifiedFilter(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    title="Filter by verification"
+                  >
+                    <option value="all">All</option>
+                    <option value="verified">Verified</option>
+                    <option value="unverified">Unverified</option>
+                  </select>
+                  <select
+                    value={userActiveFilter}
+                    onChange={(e) => setUserActiveFilter(e.target.value)}
+                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    title="Filter by status"
+                  >
+                    <option value="all">All</option>
+                    <option value="active">Active</option>
+                    <option value="blocked">Blocked</option>
+                  </select>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full">
+                  <thead>
+                    <tr className="border-b border-gray-200 bg-gray-50">
+                      <th className="text-left p-4 font-medium text-gray-700">Name</th>
+                      <th className="text-left p-4 font-medium text-gray-700">Username</th>
+                      <th className="text-left p-4 font-medium text-gray-700">Email</th>
+                      <th className="text-left p-4 font-medium text-gray-700">Role</th>
+                      <th className="text-left p-4 font-medium text-gray-700">Verified</th>
+                      <th className="text-left p-4 font-medium text-gray-700">Active</th>
+                      <th className="text-left p-4 font-medium text-gray-700">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {users
+                      .filter((u) => userVerifiedFilter === 'all' ? true : userVerifiedFilter === 'verified' ? u.verified : !u.verified)
+                      .filter((u) => userActiveFilter === 'all' ? true : userActiveFilter === 'active' ? (u.isActive !== false) : (u.isActive === false))
+                      .map((u) => (
+                      <tr key={u._id} className="border-b border-gray-100 hover:bg-gray-50">
+                        <td className="p-4 font-medium">
+                          <button
+                            className="text-blue-600 hover:underline"
+                            onClick={() => openUserBookings(u)}
+                            title="View user's bookings"
+                          >
+                            {u.firstName} {u.lastName}
+                          </button>
+                        </td>
+                        <td className="p-4">{u.username}</td>
+                        <td className="p-4">{u.email}</td>
+                        <td className="p-4 capitalize">{u.role}</td>
+                        <td className="p-4">
+                          <span className={`px-2 py-0.5 rounded-full text-xs ${u.verified ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}`}>
+                            {u.verified ? 'Yes' : 'No'}
+                          </span>
+                        </td>
+                        <td className="p-4">
+                          <span className={`px-2 py-0.5 rounded-full text-xs ${u.isActive !== false ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                            {u.isActive !== false ? 'Active' : 'Blocked'}
+                          </span>
+                        </td>
+                        <td className="p-4">
+                          {canManageUsers() ? (
+                            <div className="flex items-center gap-2">
+                              {u.verified && u.role !== 'admin' ? (
+                                <button
+                                  onClick={() => handleUnverifyUser(u._id)}
+                                  className="px-3 py-1 border rounded text-sm border-gray-300 hover:bg-gray-50"
+                                  title="Set verified to false"
+                                >
+                                  Unverify
+                                </button>
+                              ) : (!u.verified && u.role !== 'admin' ? (
+                                <button
+                                  onClick={() => handleVerifyUser(u._id)}
+                                  className="px-3 py-1 border rounded text-sm border-green-300 text-green-700 hover:bg-green-50"
+                                  title="Verify user"
+                                >
+                                  Verify
+                                </button>
+                              ) : null)}
+                              {u.isActive === false && u.role !== 'admin' ? (
+                                <button
+                                  onClick={() => handleReactivateUser(u._id)}
+                                  className="px-3 py-1 border border-green-300 text-green-700 rounded text-sm hover:bg-green-50"
+                                  title="Unblock user"
+                                >
+                                  Unblock
+                                </button>
+                              ) : (u.role !== 'admin' ? (
+                                <button
+                                  onClick={() => handleDeactivateUser(u._id)}
+                                  className="px-3 py-1 border border-red-300 text-red-600 rounded text-sm hover:bg-red-50"
+                                  title="Block user"
+                                >
+                                  Block
+                                </button>
+                              ) : null)}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-400">No actions</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
@@ -1407,6 +2024,8 @@ const AppContent = () => {
       
       {showBookingModal && <BookingModal />}
       {selectedFacility && <FacilityDetailModal />}
+      {showFacilityModal && canManageFacilities() && <FacilityModal />}
+      {showUserBookings && <UserBookingsModal />}
     </div>
   );
 };

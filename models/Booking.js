@@ -46,13 +46,13 @@ const bookingSchema = new mongoose.Schema({
     enum: ['none', 'weekly', 'biweekly', 'monthly'],
     default: 'none'
   },
+  recurrenceGroupId: {
+    type: String,
+    index: true
+  },
   notes: {
     type: String,
     trim: true
-  },
-  totalCost: {
-    type: Number,
-    default: 0
   }
 }, {
   timestamps: true

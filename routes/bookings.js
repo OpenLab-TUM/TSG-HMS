@@ -2,7 +2,15 @@ const express = require('express');
 const router = express.Router();
 const Booking = require('../models/Booking');
 const Facility = require('../models/Facility');
+const User = require('../models/User');
 const { body, validationResult } = require('express-validator');
+const { randomUUID } = require('crypto');
+const generateRecurrenceGroupId = () => {
+  try {
+    if (typeof randomUUID === 'function') return randomUUID();
+  } catch (_) {}
+  return `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+};
 
 // GET all bookings
 router.get('/', async (req, res) => {
@@ -91,6 +99,9 @@ router.post('/', [
     if (!facility) {
       return res.status(404).json({ message: 'Facility not found' });
     }
+    if ((facility.status || '').toLowerCase() !== 'open') {
+      return res.status(400).json({ message: 'Facility is closed and cannot be booked' });
+    }
 
     // Check for booking conflicts
     const conflictQuery = {
@@ -115,12 +126,105 @@ router.post('/', [
       });
     }
 
+    const recurrenceGroupId = (req.body.recurring && req.body.recurring !== 'none') ? generateRecurrenceGroupId() : undefined;
+
+    // Determine status: one-time bookings are confirmed; recurring by collaborators are pending; recurring by admins are confirmed
+    const creator = await User.findById(req.body.user).select('role');
+    const isRecurring = req.body.recurring && req.body.recurring !== 'none';
+    const isAdminCreator = creator?.role === 'admin';
+    const computedStatus = isRecurring && !isAdminCreator ? 'pending' : 'confirmed';
+
     const booking = new Booking({
       ...req.body,
-      facilityName: facility.name
+      status: computedStatus,
+      facilityName: facility.name,
+      ...(recurrenceGroupId ? { recurrenceGroupId } : {})
     });
     
     await booking.save();
+    
+    // Handle recurring bookings
+    if (req.body.recurring && req.body.recurring !== 'none') {
+      const baseDate = new Date(req.body.date);
+      const startTime = req.body.startTime;
+      const endTime = req.body.endTime;
+      const recurringBookings = [];
+      
+      let currentDate = new Date(baseDate);
+      let weekCount = 0;
+      let monthCount = 0;
+      
+      // Create recurring bookings for the next 12 occurrences
+      for (let i = 1; i <= 12; i++) {
+        let nextDate;
+        
+        switch (req.body.recurring) {
+          case 'weekly':
+            nextDate = new Date(currentDate);
+            nextDate.setDate(currentDate.getDate() + 7);
+            break;
+          case 'biweekly':
+            nextDate = new Date(currentDate);
+            nextDate.setDate(currentDate.getDate() + 14);
+            break;
+          case 'monthly':
+            nextDate = new Date(currentDate);
+            nextDate.setMonth(currentDate.getMonth() + 1);
+            break;
+          default:
+            break;
+        }
+        
+        if (!nextDate) break;
+        
+        // Check for conflicts on the next date
+        const conflictQuery = {
+          facility: req.body.facility,
+          date: {
+            $gte: new Date(new Date(nextDate).setHours(0, 0, 0, 0)),
+            $lt: new Date(new Date(nextDate).setHours(23, 59, 59, 999))
+          },
+          $or: [
+            {
+              startTime: { $lt: endTime },
+              endTime: { $gt: startTime }
+            }
+          ]
+        };
+        
+        const hasConflict = await Booking.findOne(conflictQuery);
+        if (hasConflict) {
+          // Skip this date if there's a conflict
+          currentDate = nextDate;
+          continue;
+        }
+        
+        // Create recurring booking
+        const recurringBooking = new Booking({
+          facility: req.body.facility,
+          facilityName: facility.name,
+          date: nextDate,
+          startTime: startTime,
+          endTime: endTime,
+          user: req.body.user,
+          userName: req.body.userName,
+          purpose: req.body.purpose,
+          recurring: req.body.recurring,
+          status: computedStatus,
+          notes: req.body.notes,
+          ...(recurrenceGroupId ? { recurrenceGroupId } : {})
+        });
+        
+        recurringBookings.push(recurringBooking);
+        currentDate = nextDate;
+      }
+      
+      // Save all recurring bookings
+      if (recurringBookings.length > 0) {
+        await Booking.insertMany(recurringBookings);
+        console.log(`Created ${recurringBookings.length} recurring bookings for ${req.body.recurring} pattern`);
+      }
+    }
     
     // No need to populate since we store the names directly
     
@@ -156,13 +260,37 @@ router.put('/:id', [
   }
 });
 
-// DELETE booking
+// DELETE booking (single or entire series if part of recurrence)
 router.delete('/:id', async (req, res) => {
   try {
-    const booking = await Booking.findByIdAndDelete(req.params.id);
+    const booking = await Booking.findById(req.params.id);
     if (!booking) {
       return res.status(404).json({ message: 'Booking not found' });
     }
+
+    // If this booking is part of a recurrence series and has a group id, delete the entire series
+    if (booking.recurrenceGroupId) {
+      const result = await Booking.deleteMany({ recurrenceGroupId: booking.recurrenceGroupId });
+      return res.json({ message: 'Recurring series deleted successfully', deletedCount: result.deletedCount });
+    }
+
+    // Fallback for legacy recurring bookings without a recurrenceGroupId
+    if (booking.recurring && booking.recurring !== 'none') {
+      const match = {
+        facility: booking.facility,
+        facilityName: booking.facilityName,
+        startTime: booking.startTime,
+        endTime: booking.endTime,
+        user: booking.user,
+        userName: booking.userName,
+        purpose: booking.purpose,
+        recurring: booking.recurring
+      };
+      const result = await Booking.deleteMany(match);
+      return res.json({ message: 'Recurring series deleted successfully', deletedCount: result.deletedCount });
+    }
+
+    await booking.deleteOne();
     res.json({ message: 'Booking deleted successfully' });
   } catch (error) {
     res.status(500).json({ message: 'Server error', error: error.message });

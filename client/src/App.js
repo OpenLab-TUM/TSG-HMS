@@ -1,12 +1,19 @@
 /* eslint-disable no-unused-vars */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Calendar, MapPin, Users, Clock, ChevronRight, Grid, List, Plus, Search, Map, User, Settings, LogOut, Home, X, Edit2, Trash2, Eye, Table2, ChevronLeft } from 'lucide-react';
+import { Calendar, MapPin, Users, Clock, ChevronRight, Grid, List, Plus, Search, Map, User, Settings, LogOut, Home, X, Edit2, Trash2, Eye, Table2, ChevronLeft, Tag } from 'lucide-react';
 import api from './services/api';
 import { useAuth, AuthProvider } from './contexts/AuthContext';
 import Login from './components/Login';
 import Register from './components/Register';
 import MapView from './components/MapView';
 import FloorPlanView from './components/FloorPlanView';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
+import { createRoot } from 'react-dom/client';
+import { Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, BarElement, Tooltip as ChartTooltip, Legend } from 'chart.js';
+import { Line, Bar } from 'react-chartjs-2';
+
+ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarElement, ChartTooltip, Legend);
 
 const AppContent = () => {
   const { user, isAdmin, isCollaborator, canBook, canManageUsers, canManageFacilities, canViewReports, canEditBooking, canDeleteBooking, logout, login, register, loading: authLoading, error: authError, setError: setAuthError } = useAuth();
@@ -14,14 +21,21 @@ const AppContent = () => {
   const [currentView, setCurrentView] = useState('dashboard');
   const [viewMode, setViewMode] = useState('list');
   const [selectedFacility, setSelectedFacility] = useState(null);
+  const [selectedBooking, setSelectedBooking] = useState(null);
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [editingBooking, setEditingBooking] = useState(null);
   const [selectedWeek, setSelectedWeek] = useState(new Date());
+  const [reportsWeek, setReportsWeek] = useState(new Date());
+  const [facilityFilter, setFacilityFilter] = useState('all');
+  const [reportFacilityId, setReportFacilityId] = useState(null);
+  const reportPreviewRef = useRef(null);
+  const reportHiddenRef = useRef(null);
+  const [utilizationChartType, setUtilizationChartType] = useState('bar'); // 'bar' | 'line'
   const [bookingForm, setBookingForm] = useState({
     facility: '',
     date: new Date().toISOString().split('T')[0], // Default to today
-    startTime: '09:00',
-    endTime: '10:00',
+    startTime: '',
+    endTime: '',
     purpose: '',
     recurring: 'none'
   });
@@ -140,10 +154,19 @@ const AppContent = () => {
   const handleUpdateBooking = async (e) => {
     e.preventDefault();
     try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      if (bookingForm.date < todayStr) {
+        alert('Cannot update a booking to a past date.');
+        return;
+      }
       // Find the facility ID from the name
       const facility = facilities.find(f => f.name === bookingForm.facility);
       if (!facility) {
         throw new Error('Facility not found');
+      }
+      if ((facility.status || '').toLowerCase() !== 'open') {
+        alert('This facility is closed and cannot be booked.');
+        return;
       }
 
       // Update booking data
@@ -182,7 +205,7 @@ const AppContent = () => {
     }
   };
 
-  // Handle delete booking
+  // Handle delete booking (will delete entire series if recurring)
   const handleDeleteBooking = async (bookingId) => {
     if (window.confirm('Are you sure you want to delete this booking?')) {
       try {
@@ -196,21 +219,52 @@ const AppContent = () => {
     }
   };
 
+  // Handle verify booking (admin)
+  const handleVerifyBooking = async (bookingId) => {
+    try {
+      await api.updateBooking(bookingId, { status: 'confirmed' });
+      await refreshData();
+    } catch (error) {
+      console.error('Error verifying booking:', error);
+      alert('Failed to verify booking: ' + error.message);
+    }
+  };
+
   // Handle form field changes - use callback to prevent unnecessary re-renders
   const handleFormChange = useCallback((field, value) => {
-    setBookingForm(prev => ({
-      ...prev,
-      [field]: value
-    }));
+    setBookingForm(prev => {
+      // If changing facility, clear time selections since availability may differ
+      if (field === 'facility') {
+        return {
+          ...prev,
+          [field]: value,
+          startTime: '',
+          endTime: ''
+        };
+      }
+      return {
+        ...prev,
+        [field]: value
+      };
+    });
   }, []);
 
   const handleBookingSubmit = async (e) => {
     e.preventDefault();
     try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      if (bookingForm.date < todayStr) {
+        alert('Cannot create a booking in the past.');
+        return;
+      }
       // Find the facility ID from the name
       const facility = facilities.find(f => f.name === bookingForm.facility);
       if (!facility) {
         throw new Error('Facility not found');
+      }
+      if ((facility.status || '').toLowerCase() !== 'open') {
+        alert('This facility is closed and cannot be booked.');
+        return;
       }
 
       // Create booking data for API
@@ -225,8 +279,7 @@ const AppContent = () => {
         purpose: bookingForm.purpose,
         recurring: bookingForm.recurring,
         status: 'confirmed',
-        notes: '',
-        totalCost: 0
+        notes: ''
       };
 
       // Debug: Log the booking data being sent
@@ -243,13 +296,24 @@ const AppContent = () => {
       setBookingForm({
         facility: '',
         date: new Date().toISOString().split('T')[0], // Default to today
-        startTime: '09:00',
-        endTime: '10:00',
+        startTime: '',
+        endTime: '',
         purpose: '',
         recurring: 'none'
       });
       
-      // Show success message (you can add a toast notification here)
+      // Show success message with recurring info
+      let successMessage = 'Booking created successfully!';
+      if (bookingData.recurring && bookingData.recurring !== 'none') {
+        const recurringText = {
+          'weekly': 'weekly',
+          'biweekly': 'bi-weekly',
+          'monthly': 'monthly'
+        }[bookingData.recurring];
+        successMessage = `Booking created successfully! This ${recurringText} booking will repeat for the next 12 occurrences.`;
+      }
+      alert(successMessage);
+      
       console.log('Booking created successfully!');
     } catch (error) {
       console.error('Error creating booking:', error);
@@ -420,6 +484,122 @@ const AppContent = () => {
     return week;
   };
 
+  // Build weekly grid text for a facility to export
+  // Render a timetable-like DOM for a facility and week
+  const renderTimetableDOM = (facility, weekDate, container) => {
+    const weekDates = getWeekDates(weekDate);
+    const dayNames = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+    const startOfDayMin = 6 * 60;
+    const endOfDayMin = 22 * 60;
+    const hourHeightPx = 36;
+    const totalHours = (endOfDayMin - startOfDayMin) / 60;
+    const hours = Array.from({ length: totalHours + 1 }, (_, i) => 6 + i);
+
+    const node = (
+      <div style={{ padding: 24, width: 1100, background: '#fff', fontFamily: 'Inter, system-ui, sans-serif' }}>
+        <div style={{ fontWeight: 600, fontSize: 18, marginBottom: 8 }}>{facility.name} Timetable</div>
+        <div style={{ color: '#6b7280', fontSize: 12, marginBottom: 12 }}>{getWeekRange(weekDate)}</div>
+        <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '90px repeat(7, 1fr)', background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
+            <div style={{ padding: 8, fontWeight: 500 }}>Time</div>
+            {dayNames.map((d, i) => (
+              <div key={d} style={{ padding: 8, textAlign: 'center', fontWeight: 500 }}>
+                <div>{d}</div>
+                <div style={{ fontSize: 12, color: '#6b7280' }}>{weekDates[i].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '90px repeat(7, 1fr)' }}>
+            {/* Time axis */}
+            <div style={{ position: 'relative', height: totalHours * hourHeightPx, background: '#fafafa', borderRight: '1px solid #e5e7eb' }}>
+              {hours.map((h, idx) => (
+                <div key={h} style={{ position: 'absolute', top: idx * hourHeightPx - 6, left: 0, right: 0 }}>
+                  <div style={{ textAlign: 'right', paddingRight: 8, fontSize: 10, color: '#6b7280' }}>{String(h).padStart(2, '0')}:00</div>
+                  <div style={{ borderTop: '1px solid #e5e7eb', marginTop: 6 }}></div>
+                </div>
+              ))}
+            </div>
+            {/* Day columns */}
+            {weekDates.map((date, i) => {
+              const dayBookings = bookings
+                .filter(b => b.facilityName === facility.name && new Date(b.date).toISOString().split('T')[0] === date.toISOString().split('T')[0])
+                .sort((a,b) => a.startTime.localeCompare(b.startTime));
+              const parse = (t) => { const [hh, mm] = (t||'00:00').split(':').map(Number); return (hh*60 + mm); };
+              const blockStyle = (start, end) => {
+                const s = Math.max(parse(start), startOfDayMin);
+                const e = Math.min(parse(end), endOfDayMin);
+                const top = ((s - startOfDayMin) / 60) * hourHeightPx;
+                const height = Math.max(18, ((e - s) / 60) * hourHeightPx - 2);
+                return { position: 'absolute', left: 6, right: 6, top, height, borderRadius: 6, padding: '4px 6px', color: '#fff', fontSize: 10 };
+              };
+              return (
+                <div key={i} style={{ position: 'relative', borderRight: '1px solid #f3f4f6', height: totalHours * hourHeightPx }}>
+                  {hours.map((h, idx) => (
+                    <div key={h} style={{ position: 'absolute', top: idx * hourHeightPx, left: 0, right: 0, borderTop: '1px solid #f3f4f6' }}></div>
+                  ))}
+                  {dayBookings.map((b, idx2) => (
+                    <div key={idx2} style={{ ...blockStyle(b.startTime, b.endTime), background: b.status==='confirmed' ? '#2563eb' : '#f59e0b', boxShadow: '0 1px 2px rgba(0,0,0,0.08)' }}>
+                      <div style={{ opacity: 0.9 }}>{b.startTime}-{b.endTime}</div>
+                      <div style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.purpose || b.userName}</div>
+                    </div>
+                  ))}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+
+    const root = createRoot(container);
+    root.render(node);
+    return root;
+  };
+
+  const exportFacilityAsPdf = async (facility) => {
+    // Render hidden DOM timetable and capture
+    if (!reportHiddenRef.current) return;
+    const container = document.createElement('div');
+    reportHiddenRef.current.innerHTML = '';
+    reportHiddenRef.current.appendChild(container);
+    const root = renderTimetableDOM(facility, reportsWeek, container);
+    await new Promise(r => setTimeout(r, 50));
+    const canvas = await html2canvas(container, { scale: 2, backgroundColor: '#ffffff' });
+    root.unmount?.();
+    const imgData = canvas.toDataURL('image/png');
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    // Fit image into A4 keeping aspect
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const imgWidth = pageWidth - 40;
+    const imgHeight = (canvas.height * imgWidth) / canvas.width;
+    doc.addImage(imgData, 'PNG', 20, 20, imgWidth, Math.min(imgHeight, pageHeight - 40));
+    doc.save(`${facility.name.replace(/\s+/g,'_')}_${getWeekRange(reportsWeek).replace(/\s+/g,'_')}.pdf`);
+  };
+
+  const exportAllFacilitiesAsPdf = async () => {
+    if (!reportHiddenRef.current) return;
+    const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+    for (let i = 0; i < facilities.length; i++) {
+      const f = facilities[i];
+      if (i > 0) doc.addPage();
+      const container = document.createElement('div');
+      reportHiddenRef.current.innerHTML = '';
+      reportHiddenRef.current.appendChild(container);
+      const root = renderTimetableDOM(f, reportsWeek, container);
+      await new Promise(r => setTimeout(r, 50));
+      const canvas = await html2canvas(container, { scale: 2, backgroundColor: '#ffffff' });
+      root.unmount?.();
+      const imgData = canvas.toDataURL('image/png');
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const imgWidth = pageWidth - 40;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      doc.addImage(imgData, 'PNG', 20, 20, imgWidth, Math.min(imgHeight, pageHeight - 40));
+    }
+    doc.save(`All_Facilities_${getWeekRange(reportsWeek).replace(/\s+/g,'_')}.pdf`);
+  };
+
   const getWeekRange = (date) => {
     const weekDates = getWeekDates(date);
     const start = weekDates[0];
@@ -455,10 +635,92 @@ const AppContent = () => {
     }
   };
 
+  // Group recurring bookings to avoid showing duplicates.
+  // Past occurrences are split out as individual bookings; only future ones are grouped.
+  const groupRecurringBookings = (bookings) => {
+    const grouped = [];
+    const processed = new Set();
+
+    bookings.forEach(booking => {
+      if (processed.has(booking._id)) return;
+
+      if (booking.recurring && booking.recurring !== 'none') {
+        // Find all related recurring bookings
+        const relatedBookings = bookings.filter(b => 
+          b.facilityName === booking.facilityName &&
+          b.startTime === booking.startTime &&
+          b.endTime === booking.endTime &&
+          b.userName === booking.userName &&
+          b.purpose === booking.purpose &&
+          b.recurring === booking.recurring &&
+          b.status === booking.status
+        );
+
+        // Split past and future; only group future occurrences.
+        const now = new Date();
+        const past = relatedBookings.filter(b => new Date(new Date(b.date).setHours(23,59,59,999)) < now);
+        const future = relatedBookings.filter(b => new Date(new Date(b.date).setHours(0,0,0,0)) >= new Date(now.toDateString()));
+
+        // Push all past occurrences individually
+        past.forEach(p => {
+          grouped.push(p);
+          processed.add(p._id);
+        });
+
+        // Only group if there are actually multiple future occurrences
+        if (future.length > 1) {
+          // Sort by date ascending and use the first future occurrence for display
+          const firstFuture = [...future].sort((a, b) => new Date(a.date) - new Date(b.date))[0];
+          grouped.push({
+            ...firstFuture,
+            isRecurring: true,
+            recurrenceCount: future.length,
+            recurrencePattern: booking.recurring
+          });
+
+          // Mark all future related bookings as processed
+          future.forEach(b => processed.add(b._id));
+        } else if (future.length === 1) {
+          // Single future occurrence, treat as non-recurring
+          grouped.push(future[0]);
+          processed.add(future[0]._id);
+        }
+      } else {
+        // Non-recurring booking
+        grouped.push(booking);
+        processed.add(booking._id);
+      }
+    });
+
+    return grouped;
+  };
+
+  // Get recurrence symbol and tooltip
+  const getRecurrenceInfo = (recurring, count) => {
+    if (!recurring || recurring === 'none') return { symbol: '', tooltip: '' };
+    
+    const symbols = {
+      weekly: '↻',
+      biweekly: '↻×2',
+      monthly: '⇄'
+    };
+    
+    const tooltips = {
+      weekly: `Weekly recurring (${count} occurrences)`,
+      biweekly: `Bi-weekly recurring (${count} occurrences)`,
+      monthly: `Monthly recurring (${count} occurrences)`
+    };
+    
+    return {
+      symbol: symbols[recurring],
+      tooltip: tooltips[recurring]
+    };
+  };
+
   // Limit visibility by role:
   // - Admin: all bookings
-  // - Collaborator: only their own past bookings
-  const baseBookings = isAdmin() ? bookings : bookings.filter(b => b.user === user?._id && isBookingPast(b));
+  // - Collaborator: only their own bookings (past and future)
+  const baseBookings = isAdmin() ? bookings : bookings.filter(b => b.user === user?._id);
 
   const filteredBookings = baseBookings.filter(booking => {
     const matchesSearch = booking.facilityName.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -467,6 +729,9 @@ const AppContent = () => {
     const matchesFilter = filterStatus === 'all' || booking.status === filterStatus;
     return matchesSearch && matchesFilter;
   });
+
+  // Group recurring bookings for display
+  const displayBookings = groupRecurringBookings(filteredBookings);
 
   // Helpers for privacy masking in timetable for collaborators
   const shouldMaskBooking = (booking) => {
@@ -478,6 +743,55 @@ const AppContent = () => {
     return shouldMaskBooking(booking)
       ? `${base} • Booked by ${booking.userName}`
       : `${base} • ${booking.userName}${booking.purpose ? ` • ${booking.purpose}` : ''}`;
+  };
+
+  const UtilizationChart = ({ facilities, bookings, type = 'bar' }) => {
+    const labels = Array.from({ length: 17 }, (_, i) => `${String(6 + i).padStart(2, '0')}:00`); // 06..22
+    const computeSeries = (fac) => labels.map((label) => {
+      const hour = parseInt(label.split(':')[0], 10);
+      let minutes = 0;
+      getWeekDates(reportsWeek).forEach((d) => {
+        const dateStr = new Date(d).toISOString().split('T')[0];
+        bookings.filter(b => b.facilityName === fac.name && new Date(b.date).toISOString().split('T')[0] === dateStr)
+          .forEach(b => {
+            const [sh, sm] = (b.startTime||'00:00').split(':').map(Number);
+            const [eh, em] = (b.endTime||'00:00').split(':').map(Number);
+            const overlapStart = Math.max(sh*60 + sm, hour*60);
+            const overlapEnd = Math.min(eh*60 + em, (hour+1)*60);
+            minutes += Math.max(0, overlapEnd - overlapStart);
+          });
+      });
+      return Math.round((minutes / (7 * 60)) * 100);
+    });
+
+    let data, options;
+    if (type === 'bar') {
+      const datasets = facilities.map((f, idx) => {
+        const hue = (idx * 53) % 360;
+        return {
+          label: f.name,
+          data: computeSeries(f),
+          backgroundColor: `hsla(${hue}, 70%, 55%, 0.4)`,
+          borderColor: `hsl(${hue}, 70%, 45%)`,
+          borderWidth: 1,
+          type: 'bar'
+        };
+      });
+      data = { labels, datasets };
+      options = { responsive: true, plugins: { legend: { position: 'bottom' }, tooltip: { mode: 'index', intersect: false } }, scales: { y: { title: { display: true, text: '% occupied' }, suggestedMin: 0, suggestedMax: 100 } } };
+      return <Bar data={data} options={options} />;
+    } else {
+      // average line across all facilities
+      const sums = labels.map(() => 0);
+      facilities.forEach(f => {
+        const series = computeSeries(f);
+        series.forEach((v, i) => { sums[i] += v; });
+      });
+      const avg = sums.map(v => facilities.length ? Math.round(v / facilities.length) : 0);
+      data = { labels, datasets: [{ label: 'Average Utilization', data: avg, borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.2)', tension: 0.3 }] };
+      options = { responsive: true, plugins: { legend: { position: 'bottom' } }, scales: { y: { title: { display: true, text: '% occupied' }, suggestedMin: 0, suggestedMax: 100 } } };
+      return <Line data={data} options={options} />;
+    }
   };
 
   // Reusable component to render half-hour opening grid
@@ -540,6 +854,43 @@ const AppContent = () => {
         </div>
       </div>
     );
+  };
+
+  // Format opening times per day from openingHoursGrid
+  const getOpeningTimeRangesForDay = (grid, dayKey) => {
+    const slots = Array.from({ length: 30 }, (_, i) => i); // 0..29 (07:00 .. 21:30)
+    const isOpenAt = (idx) => grid?.[dayKey]?.[idx] !== false;
+
+    const toTimeString = (idx) => {
+      // idx is a half-hour index from 0 at 07:00
+      const baseMinutes = 7 * 60; // 07:00
+      const minutes = baseMinutes + idx * 30;
+      const hh = Math.floor(minutes / 60);
+      const mm = minutes % 60;
+      return `${String(hh).padStart(2, '0')}:${mm === 0 ? '00' : '30'}`;
+    };
+
+    const ranges = [];
+    let currentStart = null;
+    slots.forEach((idx) => {
+      if (isOpenAt(idx)) {
+        if (currentStart === null) currentStart = idx;
+      } else if (currentStart !== null) {
+        // range ends at idx
+        ranges.push({ start: currentStart, end: idx });
+        currentStart = null;
+      }
+    });
+    if (currentStart !== null) {
+      // open until the end (22:00 -> idx 30)
+      ranges.push({ start: currentStart, end: 30 });
+    }
+
+    if (ranges.length === 0) return 'Closed';
+
+    return ranges
+      .map(({ start, end }) => `${toTimeString(start)}-${toTimeString(end)}`)
+      .join(', ');
   };
 
   const Sidebar = () => (
@@ -771,6 +1122,7 @@ const AppContent = () => {
           <p className="text-sm text-gray-600">Bookings</p>
         </div>
       </div>
+      
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="bg-white rounded-xl shadow-sm border border-gray-200">
           <div className="p-6 border-b border-gray-200 flex items-center justify-between">
@@ -881,18 +1233,41 @@ const AppContent = () => {
                   <th className="text-left p-4 font-medium text-gray-700">Time</th>
                   <th className="text-left p-4 font-medium text-gray-700">User</th>
                   <th className="text-left p-4 font-medium text-gray-700">Purpose</th>
+                  <th className="text-left p-4 font-medium text-gray-700">Recurring</th>
                   <th className="text-left p-4 font-medium text-gray-700">Status</th>
                   <th className="text-left p-4 font-medium text-gray-700">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredBookings.map(booking => (
+                {displayBookings.map(booking => (
                   <tr key={booking._id} className="border-b border-gray-100 hover:bg-gray-50">
                     <td className="p-4 font-medium">{booking.facilityName}</td>
-                    <td className="p-4">{new Date(booking.date).toLocaleDateString()}</td>
+                    <td className="p-4">
+                      {new Date(booking.date).toLocaleDateString()}
+                      {booking.isRecurring && (
+                        <span className="ml-2 text-xs text-gray-500">
+                          (+{booking.recurrenceCount - 1} more)
+                        </span>
+                      )}
+                    </td>
                     <td className="p-4">{booking.startTime}-{booking.endTime}</td>
                     <td className="p-4">{booking.userName}</td>
                     <td className="p-4">{booking.purpose}</td>
+                    <td className="p-4">
+                      {booking.isRecurring && (
+                        <div className="flex items-center space-x-1">
+                          <span 
+                            className="text-lg font-bold text-blue-600"
+                            title={getRecurrenceInfo(booking.recurrencePattern, booking.recurrenceCount).tooltip}
+                          >
+                            {getRecurrenceInfo(booking.recurrencePattern, booking.recurrenceCount).symbol}
+                          </span>
+                          <span className="text-xs text-gray-500">
+                            {booking.recurrenceCount}x
+                          </span>
+                        </div>
+                      )}
+                    </td>
                     <td className="p-4">
                       <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(booking.status)}`}>
                         {booking.status}
@@ -900,17 +1275,26 @@ const AppContent = () => {
                     </td>
                     <td className="p-4">
                       <div className="flex items-center space-x-2">
-                        <button className="p-1 hover:bg-gray-100 rounded">
+                        <button className="p-1 hover:bg-gray-100 rounded" onClick={() => setSelectedBooking(booking)} title="View details">
                           <Eye className="w-4 h-4 text-gray-600" />
                         </button>
-                        {(isAdmin() || canEditBooking(booking)) && (
+                        {(isAdmin() || canEditBooking(booking)) && !isBookingPast(booking) && (
                           <>
-                                                    <button 
-                          onClick={() => handleEditBooking(booking)}
-                          className="p-1 hover:bg-gray-100 rounded"
-                        >
-                          <Edit2 className="w-4 h-4 text-gray-600" />
-                        </button>
+                            <button 
+                              onClick={() => handleEditBooking(booking)}
+                              className="p-1 hover:bg-gray-100 rounded"
+                            >
+                              <Edit2 className="w-4 h-4 text-gray-600" />
+                            </button>
+                            {isAdmin() && booking.status === 'pending' && (
+                              <button 
+                                onClick={() => handleVerifyBooking(booking._id)}
+                                className="px-2 py-1 text-xs border border-green-300 text-green-700 rounded hover:bg-green-50"
+                                title="Verify pending booking"
+                              >
+                                Verify
+                              </button>
+                            )}
                             <button 
                               onClick={() => handleDeleteBooking(booking._id)}
                               className="p-1 hover:bg-gray-100 rounded"
@@ -928,7 +1312,7 @@ const AppContent = () => {
           </div>
         ) : (
           <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredBookings.map(booking => (
+            {displayBookings.map(booking => (
               <div key={booking._id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
                 <div className="flex items-start justify-between mb-3">
                   <h4 className="font-semibold text-gray-900">{booking.facilityName}</h4>
@@ -940,6 +1324,11 @@ const AppContent = () => {
                   <p className="flex items-center">
                     <Calendar className="w-4 h-4 mr-2" />
                     {new Date(booking.date).toLocaleDateString()}
+                    {booking.isRecurring && (
+                      <span className="ml-2 text-xs text-blue-600 font-medium">
+                        (+{booking.recurrenceCount - 1} more)
+                      </span>
+                    )}
                   </p>
                   <p className="flex items-center">
                     <Clock className="w-4 h-4 mr-2" />
@@ -949,11 +1338,34 @@ const AppContent = () => {
                     <User className="w-4 h-4 mr-2" />
                     {booking.userName}
                   </p>
+                  <p className="flex items-center">
+                    <Tag className="w-4 h-4 mr-2" />
+                    {booking.purpose}
+                  </p>
+                  {booking.isRecurring && (
+                    <p className="flex items-center">
+                      <span className="w-4 h-4 mr-2 text-blue-600 font-bold text-lg">
+                        {getRecurrenceInfo(booking.recurrencePattern, booking.recurrenceCount).symbol}
+                      </span>
+                      <span className="text-xs text-blue-600">
+                        {getRecurrenceInfo(booking.recurrencePattern, booking.recurrenceCount).tooltip}
+                      </span>
+                    </p>
+                  )}
                 </div>
                 <div className="mt-4 pt-4 border-t border-gray-100">
                   <p className="text-sm text-gray-700 font-medium">{booking.purpose}</p>
                 </div>
-                                        {(isAdmin() || canEditBooking(booking)) && (
+                <div className="mt-3 flex items-center justify-end">
+                  <button 
+                    onClick={() => setSelectedBooking(booking)}
+                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                    title="View details"
+                  >
+                    <Eye className="w-4 h-4 text-gray-600" />
+                  </button>
+                </div>
+                                        {(isAdmin() || canEditBooking(booking)) && !isBookingPast(booking) && (
                   <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-end space-x-2">
                     <button 
                       onClick={() => handleEditBooking(booking)}
@@ -962,6 +1374,14 @@ const AppContent = () => {
                     >
                       <Edit2 className="w-4 h-4 text-gray-600" />
                     </button>
+                    {isAdmin() && booking.status === 'pending' && (
+                      <button 
+                        onClick={() => handleVerifyBooking(booking._id)}
+                        className="px-3 py-1 text-xs border border-green-300 text-green-700 rounded hover:bg-green-50"
+                      >
+                        Verify
+                      </button>
+                    )}
                     <button 
                       onClick={() => handleDeleteBooking(booking._id)}
                       className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
@@ -1112,7 +1532,6 @@ const AppContent = () => {
   const TimetableView = () => {
     const weekDates = getWeekDates(selectedWeek);
     const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-    const [facilityFilter, setFacilityFilter] = useState('all');
     const visibleFacilities = useMemo(
       () => (facilityFilter === 'all' ? facilities : facilities.filter(f => f._id === facilityFilter)),
       [facilityFilter, facilities]
@@ -1150,7 +1569,9 @@ const AppContent = () => {
     return (
       <div className="p-8">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-gray-900">Weekly Timetable</h3>
+          <h3 className="text-lg font-semibold text-gray-900">
+            {facilityFilter === 'all' ? 'Weekly Timetable' : `${facilities.find(f => f._id === facilityFilter)?.name} Timetable`}
+          </h3>
           <div className="flex items-center space-x-2">
             <label className="text-sm text-gray-600">Facility:</label>
             <select
@@ -1207,8 +1628,13 @@ const AppContent = () => {
                             <div
                               key={b._id}
                               className={`absolute left-1 right-1 rounded-md px-2 py-1 shadow-sm overflow-hidden ${isConfirmed ? 'bg-blue-500 text-white' : 'bg-amber-500 text-white'}`}
-                              style={style}
+                              style={{ ...style, cursor: (isAdmin() || b.user === user?._id) ? 'pointer' : 'default' }}
                               title={getMaskedTitle(b)}
+                              onClick={() => {
+                                if (isAdmin() || b.user === user?._id) {
+                                  setSelectedBooking(b);
+                                }
+                              }}
                             >
                               <div className="text-[10px] opacity-90">{b.startTime}-{b.endTime}</div>
                               <div className="text-xs font-medium truncate">{masked ? 'Booked' : (b.purpose || b.userName)}</div>
@@ -1270,22 +1696,24 @@ const AppContent = () => {
                               <div className="h-full flex flex-col items-center justify-center p-2">
                                 <div className="text-center">
                                   <div className="text-gray-400 text-xs mb-2">No events</div>
-                                  <button
-                                    onClick={() => {
-                                      setBookingForm({
-                                        ...bookingForm,
-                                        facility: facility.name,
-                                        date: formatDateForComparison(date),
-                                        startTime: '09:00',
-                                        endTime: '10:00'
-                                      });
-                                      setShowBookingModal(true);
-                                    }}
-                                    className="w-8 h-8 bg-green-100 hover:bg-green-200 rounded-full transition-colors flex items-center justify-center text-green-600 hover:text-green-700"
-                                    title="Add booking"
-                                  >
-                                    <Plus className="w-4 h-4" />
-                                  </button>
+                                  {facility.status === 'open' && (
+                                    <button
+                                      onClick={() => {
+                                        setBookingForm({
+                                          ...bookingForm,
+                                          facility: facility.name,
+                                          date: formatDateForComparison(date),
+                                          startTime: '',
+                                          endTime: ''
+                                        });
+                                        setShowBookingModal(true);
+                                      }}
+                                      className="w-8 h-8 bg-green-100 hover:bg-green-200 rounded-full transition-colors flex items-center justify-center text-green-600 hover:text-green-700"
+                                      title="Add booking"
+                                    >
+                                      <Plus className="w-4 h-4" />
+                                    </button>
+                                  )}
                                 </div>
                               </div>
                             ) : (
@@ -1296,11 +1724,16 @@ const AppContent = () => {
                                   return (
                                     <div
                                       key={booking._id}
-                                      className={`rounded-lg p-2 cursor-pointer hover:opacity-90 transition-all transform hover:scale-105 ${
+                                      className={`rounded-lg p-2 ${ (isAdmin() || booking.user === user?._id) ? 'cursor-pointer hover:opacity-90 transform hover:scale-105' : 'cursor-default' } transition-all ${
                                         booking.status === 'confirmed' 
                                           ? 'bg-blue-500 text-white shadow-md' : 'bg-amber-500 text-white shadow-md'
                                       }`}
                                       title={getMaskedTitle(booking)}
+                                      onClick={() => {
+                                        if (isAdmin() || booking.user === user?._id) {
+                                          setSelectedBooking(booking);
+                                        }
+                                      }}
                                     >
                                       <div className="font-medium text-xs truncate">
                                         {booking.startTime}-{booking.endTime}
@@ -1318,22 +1751,24 @@ const AppContent = () => {
                                 })}
                                 
                                 {/* Add booking button for days with existing bookings */}
-                                <button
-                                  onClick={() => {
-                                    setBookingForm({
-                                      ...bookingForm,
-                                      facility: facility.name,
-                                      date: formatDateForComparison(date),
-                                      startTime: '09:00',
-                                      endTime: '10:00'
-                                    });
-                                    setShowBookingModal(true);
-                                  }}
-                                  className="w-6 h-6 bg-green-100 hover:bg-green-200 rounded-full transition-colors flex items-center justify-center text-green-600 hover:text-green-700 mt-1"
-                                  title="Add another booking"
-                                >
-                                  <Plus className="w-3 h-3" />
-                                </button>
+                                {facility.status === 'open' && (
+                                  <button
+                                    onClick={() => {
+                                      setBookingForm({
+                                        ...bookingForm,
+                                        facility: facility.name,
+                                        date: formatDateForComparison(date),
+                                        startTime: '',
+                                        endTime: ''
+                                      });
+                                      setShowBookingModal(true);
+                                    }}
+                                    className="w-6 h-6 bg-green-100 hover:bg-green-200 rounded-full transition-colors flex items-center justify-center text-green-600 hover:text-green-700 mt-1"
+                                    title="Add another booking"
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                  </button>
+                                )}
                               </div>
                             )}
                           </div>
@@ -1421,8 +1856,8 @@ const AppContent = () => {
                 setBookingForm({
                   facility: '',
                   date: new Date().toISOString().split('T')[0], // Default to today
-                  startTime: '09:00',
-                  endTime: '10:00',
+                  startTime: '',
+                  endTime: '',
                   purpose: '',
                   recurring: 'none'
                 });
@@ -1447,10 +1882,14 @@ const AppContent = () => {
                 className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 required
               >
-                <option value="">Select a facility</option>
-                {facilities.filter(f => f.status === 'open').map(facility => (
-                  <option key={facility._id} value={facility.name}>{facility.name}</option>
-                ))}
+                <option value="">Select a facility ({facilities.filter(f => (f.status || '').toLowerCase() === 'open').length} open)</option>
+                {facilities
+                  .filter(f => (f.status || '').toLowerCase() === 'open')
+                  .map(facility => (
+                    <option key={facility._id} value={facility.name}>
+                      {facility.name}
+                    </option>
+                  ))}
               </select>
             </div>
             
@@ -1461,6 +1900,7 @@ const AppContent = () => {
                 value={bookingForm.date}
                 onChange={(e) => handleFormChange('date', e.target.value)}
                 className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                min={new Date().toISOString().split('T')[0]}
                 required
               />
             </div>
@@ -1469,32 +1909,139 @@ const AppContent = () => {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Start Time</label>
-              <select
+              <div className="text-sm text-gray-600 mb-2">Click on available time slots below</div>
+              <input
+                type="text"
                 value={bookingForm.startTime}
-                onChange={(e) => handleFormChange('startTime', e.target.value)}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              >
-                <option value="">Select start time</option>
-                {timeSlots.map(time => (
-                  <option key={time} value={time}>{time}</option>
-                ))}
-              </select>
+                readOnly
+                className="w-full px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-700"
+                placeholder="Select start time from grid"
+              />
             </div>
             
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">End Time</label>
-              <select
+              <div className="text-sm text-gray-600 mb-2">Click on available time slots below</div>
+              <input
+                type="text"
                 value={bookingForm.endTime}
-                onChange={(e) => handleFormChange('endTime', e.target.value)}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              >
-                <option value="">Select end time</option>
-                {timeSlots.map(time => (
-                  <option key={time} value={time}>{time}</option>
-                ))}
-              </select>
+                readOnly
+                className="w-full px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-700"
+                placeholder="Select end time from grid"
+              />
+            </div>
+          </div>
+          
+          <div className="mb-4">
+            <label className="block text-sm font-medium text-gray-700 mb-2">Available Time Slots</label>
+            <div className="bg-gray-50 rounded-lg p-3 max-h-64 overflow-y-auto">
+              {(() => {
+                const selectedFacility = facilities.find(f => f.name === bookingForm.facility);
+                if (!selectedFacility) return <div className="text-gray-500 text-center py-4">Select a facility first</div>;
+                
+                const days = [
+                  { key: 'monday', label: 'Mon' },
+                  { key: 'tuesday', label: 'Tue' },
+                  { key: 'wednesday', label: 'Wed' },
+                  { key: 'thursday', label: 'Thu' },
+                  { key: 'friday', label: 'Fri' },
+                  { key: 'saturday', label: 'Sat' },
+                  { key: 'sunday', label: 'Sun' },
+                ];
+                
+                const slots = Array.from({ length: 30 }, (_, i) => {
+                  const hour = 7 + Math.floor(i / 2);
+                  const minute = i % 2 === 0 ? '00' : '30';
+                  return `${String(hour).padStart(2, '0')}:${minute}`;
+                });
+                
+                const getDayFromDate = (dateStr) => {
+                  const date = new Date(dateStr);
+                  const dayIndex = (date.getDay() + 6) % 7; // Convert to Monday=0 format
+                  return days[dayIndex].key;
+                };
+                
+                const selectedDay = getDayFromDate(bookingForm.date);
+                
+                const isSlotAvailable = (day, slotIdx) => {
+                  return selectedFacility.openingHoursGrid?.[day]?.[slotIdx] !== false;
+                };
+                
+                const handleSlotClick = (day, slotIdx, time) => {
+                  if (!isSlotAvailable(day, slotIdx)) return;
+                  
+                  if (!bookingForm.startTime) {
+                    // Set start time
+                    setBookingForm(prev => ({ ...prev, startTime: time }));
+                  } else if (!bookingForm.endTime) {
+                    // Set end time - must be after start time
+                    const startIdx = slots.indexOf(bookingForm.startTime);
+                    if (slotIdx > startIdx) {
+                      setBookingForm(prev => ({ ...prev, endTime: time }));
+                    }
+                  } else {
+                    // Reset and set new start time
+                    setBookingForm(prev => ({ ...prev, startTime: time, endTime: '' }));
+                  }
+                };
+                
+                const isSlotSelected = (time) => {
+                  return time === bookingForm.startTime || time === bookingForm.endTime;
+                };
+                
+                const isSlotInRange = (time) => {
+                  if (!bookingForm.startTime || !bookingForm.endTime) return false;
+                  const startIdx = slots.indexOf(bookingForm.startTime);
+                  const endIdx = slots.indexOf(bookingForm.endTime);
+                  const currentIdx = slots.indexOf(time);
+                  return currentIdx >= startIdx && currentIdx <= endIdx;
+                };
+                
+                return (
+                  <div>
+                    <div className="grid grid-cols-8 gap-1 text-xs mb-2">
+                      <div className="font-medium text-gray-700">Time</div>
+                      {days.map(d => (
+                        <div key={d.key} className="font-medium text-gray-700 text-center">{d.label}</div>
+                      ))}
+                    </div>
+                    {slots.map((time, slotIdx) => (
+                      <div key={time} className="grid grid-cols-8 gap-1 items-center mb-1">
+                        <div className="text-gray-600 w-16 text-xs">{time}</div>
+                        {days.map(d => {
+                          const dayKey = d.key;
+                          const isAvailable = isSlotAvailable(dayKey, slotIdx);
+                          const isSelected = isSlotSelected(time) && dayKey === selectedDay;
+                          const isInRange = isSlotInRange(time) && dayKey === selectedDay;
+                          const isSelectedDay = dayKey === selectedDay;
+                          
+                          let bgColor = 'bg-gray-200';
+                          if (isSelected) bgColor = 'bg-blue-500';
+                          else if (isInRange) bgColor = 'bg-blue-200';
+                          else if (isAvailable) bgColor = 'bg-green-200';
+                          else bgColor = 'bg-red-200';
+                          
+                          return (
+                            <button
+                              key={`${dayKey}-${slotIdx}`}
+                              type="button"
+                              disabled={!isAvailable || !isSelectedDay}
+                              className={`h-6 rounded transition-colors text-xs ${bgColor} ${
+                                isAvailable && isSelectedDay ? 'hover:opacity-80 cursor-pointer' : 'cursor-not-allowed'
+                              } ${!isSelectedDay ? 'blur-[0.5px] opacity-30' : ''}`}
+                              onClick={() => isSelectedDay && handleSlotClick(dayKey, slotIdx, time)}
+                              title={`${d.label} ${time} ${isAvailable ? 'Available' : 'Closed'}${!isSelectedDay ? ' (not selected day)' : ''}`}
+                            />
+                          );
+                        })}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+            <div className="mt-2 text-xs text-gray-600">
+              Click on available (green) slots to set start time, then click another slot to set end time.
             </div>
           </div>
           
@@ -1534,8 +2081,8 @@ const AppContent = () => {
                 setBookingForm({
                   facility: '',
                   date: new Date().toISOString().split('T')[0], // Default to today
-                  startTime: '09:00',
-                  endTime: '10:00',
+                  startTime: '',
+                  endTime: '',
                   purpose: '',
                   recurring: 'none'
                 });
@@ -1583,7 +2130,25 @@ const AppContent = () => {
                       {selectedFacility.status}
                     </span>
                   </div>
-                  
+                  <div className="pt-2">
+                    <h5 className="text-xs font-semibold text-gray-600 mb-2">Opening times</h5>
+                    <div className="grid grid-cols-2 gap-y-1 text-sm">
+                      <span className="text-gray-500">Mon</span>
+                      <span className="text-gray-900">{getOpeningTimeRangesForDay(selectedFacility.openingHoursGrid, 'monday')}</span>
+                      <span className="text-gray-500">Tue</span>
+                      <span className="text-gray-900">{getOpeningTimeRangesForDay(selectedFacility.openingHoursGrid, 'tuesday')}</span>
+                      <span className="text-gray-500">Wed</span>
+                      <span className="text-gray-900">{getOpeningTimeRangesForDay(selectedFacility.openingHoursGrid, 'wednesday')}</span>
+                      <span className="text-gray-500">Thu</span>
+                      <span className="text-gray-900">{getOpeningTimeRangesForDay(selectedFacility.openingHoursGrid, 'thursday')}</span>
+                      <span className="text-gray-500">Fri</span>
+                      <span className="text-gray-900">{getOpeningTimeRangesForDay(selectedFacility.openingHoursGrid, 'friday')}</span>
+                      <span className="text-gray-500">Sat</span>
+                      <span className="text-gray-900">{getOpeningTimeRangesForDay(selectedFacility.openingHoursGrid, 'saturday')}</span>
+                      <span className="text-gray-500">Sun</span>
+                      <span className="text-gray-900">{getOpeningTimeRangesForDay(selectedFacility.openingHoursGrid, 'sunday')}</span>
+                    </div>
+                  </div>
                 </div>
               </div>
               
@@ -1608,15 +2173,108 @@ const AppContent = () => {
             </div>
             
             <div className="mt-6 flex items-center justify-end space-x-3">
+              {selectedFacility.status === 'open' ? (
+                <button
+                  onClick={() => {
+                    setSelectedFacility(null);
+                    setShowBookingModal(true);
+                    setBookingForm({...bookingForm, facility: selectedFacility.name});
+                  }}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Book This Facility
+                </button>
+              ) : (
+                <div className="text-sm text-red-600 font-medium">Facility is closed</div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  );
+
+  const BookingDetailModal = () => (
+    selectedBooking && (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4">
+          <div className="p-6 border-b border-gray-200">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xl font-semibold text-gray-900">Booking Details</h3>
               <button
-                onClick={() => {
-                  setSelectedFacility(null);
-                  setShowBookingModal(true);
-                  setBookingForm({...bookingForm, facility: selectedFacility.name});
-                }}
-                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                onClick={() => setSelectedBooking(null)}
+                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
               >
-                Book This Facility
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+          </div>
+          <div className="p-6 space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <p className="text-xs text-gray-500">Facility</p>
+                <p className="text-sm font-medium text-gray-900">{selectedBooking.facilityName}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Date</p>
+                <p className="text-sm font-medium text-gray-900">{new Date(selectedBooking.date).toLocaleDateString()}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Time</p>
+                <p className="text-sm font-medium text-gray-900">{selectedBooking.startTime}-{selectedBooking.endTime}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Booked By</p>
+                <p className="text-sm font-medium text-gray-900">{selectedBooking.userName}</p>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Status</p>
+                <span className={`inline-block mt-1 px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(selectedBooking.status)}`}>
+                  {selectedBooking.status}
+                </span>
+              </div>
+              <div>
+                <p className="text-xs text-gray-500">Recurring</p>
+                <p className="text-sm font-medium text-gray-900 capitalize">{selectedBooking.recurring && selectedBooking.recurring !== 'none' ? selectedBooking.recurring : 'none'}</p>
+              </div>
+            </div>
+            {selectedBooking.purpose && (
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Purpose</p>
+                <p className="text-sm text-gray-900">{selectedBooking.purpose}</p>
+              </div>
+            )}
+            {selectedBooking.notes && (
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Notes</p>
+                <p className="text-sm text-gray-900">{selectedBooking.notes}</p>
+              </div>
+            )}
+            
+            <div className="flex items-center justify-end gap-2 pt-2">
+              {(isAdmin() || canEditBooking(selectedBooking)) && !isBookingPast(selectedBooking) && (
+                <>
+                  <button
+                    onClick={() => { handleEditBooking(selectedBooking); setSelectedBooking(null); }}
+                    className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50"
+                    title="Edit booking"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => { handleDeleteBooking(selectedBooking._id); setSelectedBooking(null); }}
+                    className="px-4 py-2 border border-red-300 text-red-600 rounded-lg text-sm hover:bg-red-50"
+                    title="Delete booking"
+                  >
+                    Delete
+                  </button>
+                </>
+              )}
+              <button
+                onClick={() => setSelectedBooking(null)}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+              >
+                Close
               </button>
             </div>
           </div>
@@ -2000,12 +2658,53 @@ const AppContent = () => {
         )}
         
         {currentView === 'reports' && (
-          <div className="p-8">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-12 text-center">
-              <Settings className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-xl font-semibold text-gray-900 mb-2">Reports & Analytics</h3>
-              <p className="text-gray-600">View facility usage reports and analytics</p>
+          <div className="p-8 space-y-6">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Export Weekly Timetable (PDF)</h3>
+                <div className="flex items-center gap-3">
+                  <label className="text-sm text-gray-600">Week starting:</label>
+                  <input
+                    type="date"
+                    value={new Date(reportsWeek.getTime() - (reportsWeek.getDay()===0?6:reportsWeek.getDay()-1)*24*60*60*1000).toISOString().split('T')[0]}
+                    onChange={(e)=>setReportsWeek(new Date(e.target.value))}
+                    className="px-3 py-2 border rounded text-sm"
+                  />
+                  <div className="text-sm text-gray-500">{getWeekRange(reportsWeek)}</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-3 flex-wrap">
+                <button onClick={async () => await exportAllFacilitiesAsPdf()} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Export Combined PDF</button>
+                <select value={reportFacilityId||''} onChange={(e)=>setReportFacilityId(e.target.value)} className="px-3 py-2 border rounded text-sm">
+                  <option value="">Select facility...</option>
+                  {facilities.map(f=> (
+                    <option key={f._id} value={f._id}>{f.name}</option>
+                  ))}
+                </select>
+                <button disabled={!reportFacilityId} onClick={async ()=>{ const f= facilities.find(x=>x._id===reportFacilityId); if(f) await exportFacilityAsPdf(f); }} className={`px-3 py-2 border rounded text-sm ${reportFacilityId? 'hover:bg-gray-50' : 'opacity-50 cursor-not-allowed'}`}>Export Selected Facility</button>
+              </div>
             </div>
+
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-semibold text-gray-900">Facility Utilization by Time of Day</h3>
+                <div className="flex items-center gap-3">
+                  <label className="text-sm text-gray-600">Chart:</label>
+                  <select value={utilizationChartType} onChange={(e)=>setUtilizationChartType(e.target.value)} className="px-2 py-1 border rounded text-sm">
+                    <option value="bar">Stacked Bars</option>
+                    <option value="line">Average Line</option>
+                  </select>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <div className="min-w-[800px]">
+                  <UtilizationChart facilities={facilities} bookings={bookings} type={utilizationChartType} />
+                </div>
+              </div>
+            </div>
+
+            {/* Hidden print area for PDF render */}
+            <div className="absolute left-[-9999px] top-[-9999px]" ref={reportHiddenRef} />
           </div>
         )}
         
@@ -2024,6 +2723,7 @@ const AppContent = () => {
       
       {showBookingModal && <BookingModal />}
       {selectedFacility && <FacilityDetailModal />}
+      {selectedBooking && <BookingDetailModal />}
       {showFacilityModal && canManageFacilities() && <FacilityModal />}
       {showUserBookings && <UserBookingsModal />}
     </div>

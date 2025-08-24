@@ -231,23 +231,15 @@ const AppContent = () => {
   };
 
   // Handle form field changes - use callback to prevent unnecessary re-renders
-  const handleFormChange = useCallback((field, value) => {
+  const handleFormChange = (field, value) => {
     setBookingForm(prev => {
       // If changing facility, clear time selections since availability may differ
       if (field === 'facility') {
-        return {
-          ...prev,
-          [field]: value,
-          startTime: '',
-          endTime: ''
-        };
+        return {...prev, [field]: value, startTime: '', endTime: ''};
       }
-      return {
-        ...prev,
-        [field]: value
-      };
+      return {...prev, [field]: value};
     });
-  }, []);
+  };
 
   const handleBookingSubmit = async (e) => {
     e.preventDefault();
@@ -797,6 +789,7 @@ const AppContent = () => {
   // Reusable component to render half-hour opening grid
   const OpeningHoursGrid = ({ grid, onToggle, readOnly = false }) => {
     const scrollRef = useRef(null);
+    const containerRef = useRef(null);
     const days = [
       { key: 'monday', label: 'Mon' },
       { key: 'tuesday', label: 'Tue' },
@@ -812,45 +805,49 @@ const AppContent = () => {
       return `${String(hour).padStart(2, '0')}:${minute}`;
     });
 
-    return (
-      <div ref={scrollRef} className="bg-gray-50 rounded-lg p-3 max-h-96 overflow-y-auto overflow-x-hidden">
-        <div>
-          <div className="grid grid-cols-8 gap-2 text-xs mb-2">
-            <div className="font-medium text-gray-700">Time</div>
-            {days.map(d => (
-              <div key={d.key} className="font-medium text-gray-700 text-center">{d.label}</div>
+        return (
+      <div ref={containerRef} className="overflow-x-hidden">
+        <div ref={scrollRef}>
+          <div>
+            <div className="grid grid-cols-8 gap-1 text-xs mb-2">
+              <div className="font-medium text-gray-700">Time</div>
+              {days.map(d => (
+                <div key={d.key} className="font-medium text-gray-700 text-center">{d.label}</div>
+              ))}
+            </div>
+            {slots.map((label, slotIdx) => (
+              <div key={label} className="grid grid-cols-8 gap-1 items-center mb-1">
+                <div className="text-gray-600 w-14 text-xs">{label}</div>
+                {days.map(d => {
+                  const isOpen = grid?.[d.key]?.[slotIdx] !== false;
+                  const common = `h-6 rounded transition-colors ${isOpen ? 'bg-green-200' : 'bg-red-200'}`;
+                  if (readOnly) {
+                    return <div key={`${d.key}-${slotIdx}`} className={common}></div>;
+                  }
+                  return (
+                    <button
+                      key={`${d.key}-${slotIdx}`}
+                      type="button"
+                      className={common}
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        const currentScroll = containerRef.current ? containerRef.current.scrollTop : 0;
+                        onToggle && onToggle(d.key, slotIdx);
+                        // Use setTimeout instead of requestAnimationFrame
+                        setTimeout(() => {
+                          if (containerRef.current) {
+                            containerRef.current.scrollTop = currentScroll;
+                          }
+                        }, 0);
+                      }}
+                      title={`${d.label} ${label} ${isOpen ? 'Open' : 'Closed'}`}
+                    />
+                  );
+                })}
+              </div>
             ))}
           </div>
-          {slots.map((label, slotIdx) => (
-            <div key={label} className="grid grid-cols-8 gap-2 items-center mb-1">
-              <div className="text-gray-600 w-16">{label}</div>
-              {days.map(d => {
-                const isOpen = grid?.[d.key]?.[slotIdx] !== false;
-                const common = `h-8 rounded transition-colors ${isOpen ? 'bg-green-200' : 'bg-red-200'}`;
-                if (readOnly) {
-                  return <div key={`${d.key}-${slotIdx}`} className={common}></div>;
-                }
-                return (
-                  <button
-                    key={`${d.key}-${slotIdx}`}
-                    type="button"
-                    className={common}
-                    onClick={() => {
-                      const currentScroll = scrollRef.current ? scrollRef.current.scrollTop : 0;
-                      onToggle && onToggle(d.key, slotIdx);
-                      // Restore scroll after state update
-                      setTimeout(() => {
-                        if (scrollRef.current) {
-                          scrollRef.current.scrollTop = currentScroll;
-                        }
-                      }, 0);
-                    }}
-                    title={`${d.label} ${label} ${isOpen ? 'Open' : 'Closed'}`}
-                  />
-                );
-              })}
-            </div>
-          ))}
         </div>
       </div>
     );
@@ -1630,7 +1627,9 @@ const AppContent = () => {
                               className={`absolute left-1 right-1 rounded-md px-2 py-1 shadow-sm overflow-hidden ${isConfirmed ? 'bg-blue-500 text-white' : 'bg-amber-500 text-white'}`}
                               style={{ ...style, cursor: (isAdmin() || b.user === user?._id) ? 'pointer' : 'default' }}
                               title={getMaskedTitle(b)}
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
                                 if (isAdmin() || b.user === user?._id) {
                                   setSelectedBooking(b);
                                 }
@@ -1698,7 +1697,9 @@ const AppContent = () => {
                                   <div className="text-gray-400 text-xs mb-2">No events</div>
                                   {facility.status === 'open' && (
                                     <button
-                                      onClick={() => {
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
                                         setBookingForm({
                                           ...bookingForm,
                                           facility: facility.name,
@@ -1729,7 +1730,9 @@ const AppContent = () => {
                                           ? 'bg-blue-500 text-white shadow-md' : 'bg-amber-500 text-white shadow-md'
                                       }`}
                                       title={getMaskedTitle(booking)}
-                                      onClick={() => {
+                                      onClick={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
                                         if (isAdmin() || booking.user === user?._id) {
                                           setSelectedBooking(booking);
                                         }
@@ -1753,7 +1756,9 @@ const AppContent = () => {
                                 {/* Add booking button for days with existing bookings */}
                                 {facility.status === 'open' && (
                                   <button
-                                    onClick={() => {
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
                                       setBookingForm({
                                         ...bookingForm,
                                         facility: facility.name,
@@ -1842,8 +1847,8 @@ const AppContent = () => {
   };
 
   const BookingModal = () => (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-hidden">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-7xl mx-4 max-h-[95vh] overflow-hidden">
         <div className="p-6 border-b border-gray-200">
           <div className="flex items-center justify-between">
             <h3 className="text-xl font-semibold text-gray-900">
@@ -1871,9 +1876,10 @@ const AppContent = () => {
         
         <form 
           onSubmit={editingBooking ? handleUpdateBooking : handleBookingSubmit} 
-          className="p-6"
+          className="p-6 flex gap-6"
         >
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+          {/* Left Column - Form Fields */}
+          <div className="w-80 space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Facility</label>
               <select
@@ -1904,9 +1910,7 @@ const AppContent = () => {
                 required
               />
             </div>
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Start Time</label>
               <div className="text-sm text-gray-600 mb-2">Click on available time slots below</div>
@@ -1930,11 +1934,75 @@ const AppContent = () => {
                 placeholder="Select end time from grid"
               />
             </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Purpose</label>
+              <input
+                ref={purposeInputRef}
+                type="text"
+                value={bookingForm.purpose}
+                onChange={(e) => handleFormChange('purpose', e.target.value)}
+                placeholder="e.g., Basketball Training, Team Meeting"
+                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                required
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Recurring Booking</label>
+              <select
+                value={bookingForm.recurring}
+                onChange={(e) => handleFormChange('recurring', e.target.value)}
+                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="none">No Recurrence</option>
+                <option value="weekly">Weekly</option>
+                <option value="biweekly">Bi-weekly</option>
+                <option value="monthly">Monthly</option>
+              </select>
+            </div>
+            
+            <div className="pt-4">
+              <div className="text-xs text-gray-600 mb-2">
+                Click on available (green) slots to set start time, then click another slot to set end time.
+              </div>
+            </div>
+            
+            {/* Form Buttons */}
+            <div className="pt-6 border-t border-gray-200">
+              <div className="flex items-center justify-end space-x-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowBookingModal(false);
+                    setEditingBooking(null);
+                    setBookingForm({
+                      facility: '',
+                      date: new Date().toISOString().split('T')[0], // Default to today
+                      startTime: '',
+                      endTime: '',
+                      purpose: '',
+                      recurring: 'none'
+                    });
+                  }}
+                  className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                >
+                  {editingBooking ? 'Update Booking' : 'Create Booking'}
+                </button>
+              </div>
+            </div>
           </div>
           
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Available Time Slots</label>
-            <div className="bg-gray-50 rounded-lg p-3 max-h-64 overflow-y-auto">
+          {/* Right Column - Full Timetable */}
+          <div className="flex-1">
+            <label className="block text-sm font-medium text-gray-700 mb-3">Available Time Slots</label>
+            <div className="bg-gray-50 rounded-lg p-4">
               {(() => {
                 const selectedFacility = facilities.find(f => f.name === bookingForm.facility);
                 if (!selectedFacility) return <div className="text-gray-500 text-center py-4">Select a facility first</div>;
@@ -1967,8 +2035,12 @@ const AppContent = () => {
                   return selectedFacility.openingHoursGrid?.[day]?.[slotIdx] !== false;
                 };
                 
-                const handleSlotClick = (day, slotIdx, time) => {
+                const handleSlotClick = (day, slotIdx, time, event) => {
                   if (!isSlotAvailable(day, slotIdx)) return;
+                  
+                  // Prevent default behavior and stop propagation
+                  event.preventDefault();
+                  event.stopPropagation();
                   
                   if (!bookingForm.startTime) {
                     // Set start time
@@ -2029,7 +2101,7 @@ const AppContent = () => {
                               className={`h-6 rounded transition-colors text-xs ${bgColor} ${
                                 isAvailable && isSelectedDay ? 'hover:opacity-80 cursor-pointer' : 'cursor-not-allowed'
                               } ${!isSelectedDay ? 'blur-[0.5px] opacity-30' : ''}`}
-                              onClick={() => isSelectedDay && handleSlotClick(dayKey, slotIdx, time)}
+                              onClick={(e) => isSelectedDay && handleSlotClick(dayKey, slotIdx, time, e)}
                               title={`${d.label} ${time} ${isAvailable ? 'Available' : 'Closed'}${!isSelectedDay ? ' (not selected day)' : ''}`}
                             />
                           );
@@ -2040,63 +2112,6 @@ const AppContent = () => {
                 );
               })()}
             </div>
-            <div className="mt-2 text-xs text-gray-600">
-              Click on available (green) slots to set start time, then click another slot to set end time.
-            </div>
-          </div>
-          
-          <div className="mb-4">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Purpose</label>
-            <input
-              ref={purposeInputRef}
-              type="text"
-              value={bookingForm.purpose}
-              onChange={(e) => handleFormChange('purpose', e.target.value)}
-              placeholder="e.g., Basketball Training, Team Meeting"
-              className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            />
-          </div>
-          
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">Recurring Booking</label>
-            <select
-              value={bookingForm.recurring}
-              onChange={(e) => handleFormChange('recurring', e.target.value)}
-              className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="none">No Recurrence</option>
-              <option value="weekly">Weekly</option>
-              <option value="biweekly">Bi-weekly</option>
-              <option value="monthly">Monthly</option>
-            </select>
-          </div>
-          
-          <div className="flex items-center justify-end space-x-3">
-            <button
-              type="button"
-              onClick={() => {
-                setShowBookingModal(false);
-                setEditingBooking(null);
-                setBookingForm({
-                  facility: '',
-                  date: new Date().toISOString().split('T')[0], // Default to today
-                  startTime: '',
-                  endTime: '',
-                  purpose: '',
-                  recurring: 'none'
-                });
-              }}
-              className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              {editingBooking ? 'Update Booking' : 'Create Booking'}
-            </button>
           </div>
         </form>
       </div>
@@ -2105,7 +2120,7 @@ const AppContent = () => {
 
   const FacilityDetailModal = () => (
     selectedFacility && (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-hidden">
         <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl mx-4 max-h-[90vh] overflow-y-auto">
           <div className="p-6 border-b border-gray-200">
             <div className="flex items-center justify-between">
@@ -2196,8 +2211,8 @@ const AppContent = () => {
 
   const BookingDetailModal = () => (
     selectedBooking && (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-        <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4">
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-hidden">
+        <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
           <div className="p-6 border-b border-gray-200">
             <div className="flex items-center justify-between">
               <h3 className="text-xl font-semibold text-gray-900">Booking Details</h3>
@@ -2333,8 +2348,8 @@ const AppContent = () => {
   );
 
   const FacilityModal = () => (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4">
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-hidden">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-7xl mx-4 max-h-[95vh] overflow-hidden">
         <div className="p-6 border-b border-gray-200">
           <div className="flex items-center justify-between">
             <h3 className="text-xl font-semibold text-gray-900">
@@ -2348,8 +2363,9 @@ const AppContent = () => {
             </button>
           </div>
         </div>
-        <form onSubmit={handleSaveFacility} className="p-6 space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <form onSubmit={handleSaveFacility} className="p-6 flex gap-6">
+          {/* Left Column - Form Fields */}
+          <div className="w-80 space-y-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
               <input
@@ -2360,6 +2376,7 @@ const AppContent = () => {
                 required
               />
             </div>
+            
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
               <select
@@ -2371,80 +2388,91 @@ const AppContent = () => {
                 <option value="closed">Closed</option>
               </select>
             </div>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4"></div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Equipment</label>
-            <div className="space-y-2">
-              {facilityForm.equipmentList.map((item, idx) => (
-                <div key={idx} className="flex items-center gap-2">
-                  <input
-                    type="text"
-                    value={item}
-                    onChange={(e) => {
-                      const value = e.target.value;
-                      setFacilityForm(prev => ({
-                        ...prev,
-                        equipmentList: prev.equipmentList.map((it, i) => i === idx ? value : it)
-                      }));
-                    }}
-                    className="flex-1 px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    placeholder="e.g., Projector"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setFacilityForm(prev => ({
-                      ...prev,
-                      equipmentList: prev.equipmentList.filter((_, i) => i !== idx)
-                    }))}
-                    className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
-                    aria-label="Remove equipment"
-                  >
-                    Remove
-                  </button>
-                </div>
-              ))}
-              <button
-                type="button"
-                onClick={() => setFacilityForm(prev => ({ ...prev, equipmentList: [...prev.equipmentList, ''] }))}
-                className="mt-2 inline-flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm"
-              >
-                + Add Equipment
-              </button>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Equipment</label>
+              <div className="space-y-2">
+                {facilityForm.equipmentList.map((item, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={item}
+                      onChange={(e) => {
+                        const value = e.target.value;
+                        setFacilityForm(prev => ({
+                          ...prev,
+                          equipmentList: prev.equipmentList.map((it, i) => i === idx ? value : it)
+                        }));
+                      }}
+                      className="flex-1 px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      placeholder="e.g., Projector"
+                    />
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setFacilityForm(prev => ({
+                          ...prev,
+                          equipmentList: prev.equipmentList.filter((_, i) => i !== idx)
+                        }));
+                      }}
+                      className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+                      aria-label="Remove equipment"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setFacilityForm(prev => ({ ...prev, equipmentList: [...prev.equipmentList, ''] }));
+                  }}
+                  className="mt-2 inline-flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm"
+                >
+                  + Add Equipment
+                </button>
+              </div>
+            </div>
+            
+            {/* Form Buttons */}
+            <div className="pt-6 border-t border-gray-200">
+              <div className="flex items-center justify-end gap-3 pt-4">
+                <button
+                  type="button"
+                  onClick={() => { setShowFacilityModal(false); setEditingFacility(null); }}
+                  className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
+                >
+                  Save
+                </button>
+              </div>
             </div>
           </div>
-          <div></div>
-          {/* Weekly opening schedule (07:00 - 22:00, 30 half-hour slots) */}
-          <div>
+          
+          {/* Right Column - Full Timetable */}
+          <div className="flex-1">
             <h4 className="text-sm font-medium text-gray-700 mb-3">Weekly Schedule</h4>
-            <OpeningHoursGrid
-              grid={facilityForm.openingHoursGrid}
-              onToggle={(day, idx) => {
-                setFacilityForm(prev => ({
-                  ...prev,
-                  openingHoursGrid: {
-                    ...prev.openingHoursGrid,
-                    [day]: prev.openingHoursGrid[day].map((v, i) => i === idx ? !v : v)
-                  }
-                }));
-              }}
-            />
-          </div>
-
-          <div className="flex items-center justify-end gap-3 pt-2">
-            <button
-              type="button"
-              onClick={() => { setShowFacilityModal(false); setEditingFacility(null); }}
-              className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-            >
-              Save
-            </button>
+            <div className="bg-gray-50 rounded-lg p-3">
+              <OpeningHoursGrid
+                grid={facilityForm.openingHoursGrid}
+                onToggle={(day, idx) => {
+                  setFacilityForm(prev => ({
+                    ...prev,
+                    openingHoursGrid: {
+                      ...prev.openingHoursGrid,
+                      [day]: prev.openingHoursGrid[day].map((v, i) => i === idx ? !v : v)
+                    }
+                  }));
+                }}
+              />
+            </div>
           </div>
         </form>
       </div>
@@ -2570,7 +2598,6 @@ const AppContent = () => {
                   <thead>
                     <tr className="border-b border-gray-200 bg-gray-50">
                       <th className="text-left p-4 font-medium text-gray-700">Name</th>
-                      <th className="text-left p-4 font-medium text-gray-700">Username</th>
                       <th className="text-left p-4 font-medium text-gray-700">Email</th>
                       <th className="text-left p-4 font-medium text-gray-700">Role</th>
                       <th className="text-left p-4 font-medium text-gray-700">Verified</th>
@@ -2593,7 +2620,6 @@ const AppContent = () => {
                             {u.firstName} {u.lastName}
                           </button>
                         </td>
-                        <td className="p-4">{u.username}</td>
                         <td className="p-4">{u.email}</td>
                         <td className="p-4 capitalize">{u.role}</td>
                         <td className="p-4">

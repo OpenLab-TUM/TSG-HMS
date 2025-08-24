@@ -37,7 +37,6 @@ router.get('/:id', async (req, res) => {
 
 // POST create new user
 router.post('/', [
-  body('username').notEmpty().withMessage('Username is required'),
   body('email').isEmail().withMessage('Valid email is required'),
   body('firstName').notEmpty().withMessage('First name is required'),
   body('lastName').notEmpty().withMessage('Last name is required'),
@@ -49,14 +48,12 @@ router.post('/', [
   }
 
   try {
-    // Check if username or email already exists
-    const existingUser = await User.findOne({
-      $or: [{ username: req.body.username }, { email: req.body.email }]
-    });
+    // Check if email already exists
+    const existingUser = await User.findOne({ email: req.body.email });
     
     if (existingUser) {
       return res.status(400).json({ 
-        message: 'Username or email already exists' 
+        message: 'Email already exists' 
       });
     }
 

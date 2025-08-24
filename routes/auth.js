@@ -8,22 +8,7 @@ const router = express.Router();
 // JWT Secret (should be in environment variables)
 const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
 
-// Helper to generate unique username from email
-async function generateUniqueUsername(email) {
-  const base = (email || '').split('@')[0].replace(/[^a-zA-Z0-9._-]/g, '') || 'user';
-  let candidate = base;
-  let suffix = 1;
-  // Ensure uniqueness
-  // eslint-disable-next-line no-constant-condition
-  while (true) {
-    // Check if exists
-    // eslint-disable-next-line no-await-in-loop
-    const exists = await User.exists({ username: candidate });
-    if (!exists) return candidate;
-    candidate = `${base}${suffix}`;
-    suffix += 1;
-  }
-}
+
 
 // Middleware to verify JWT token
 const authenticateToken = async (req, res, next) => {
@@ -74,12 +59,8 @@ router.post('/register', [
     const saltRounds = 12;
     const hashedPassword = await bcrypt.hash(password, saltRounds);
 
-    // Auto-generate unique username
-    const username = await generateUniqueUsername(email);
-
     // Create new user (collaborator by default, unverified)
     const newUser = new User({
-      username,
       firstName,
       lastName,
       email,
@@ -98,7 +79,6 @@ router.post('/register', [
       message: 'Registration successful! Please wait for admin verification before you can book facilities.',
       user: {
         id: newUser._id,
-        username: newUser.username,
         firstName: newUser.firstName,
         lastName: newUser.lastName,
         email: newUser.email,
@@ -191,7 +171,6 @@ router.post('/login', [
       token,
       user: {
         id: user._id,
-        username: user.username,
         firstName: user.firstName,
         lastName: user.lastName,
         email: user.email,
@@ -275,7 +254,6 @@ router.post('/verify-user/:userId', authenticateToken, async (req, res) => {
       message: 'User verified successfully',
       user: {
         id: user._id,
-        username: user.username,
         firstName: user.firstName,
         lastName: user.lastName,
         email: user.email,

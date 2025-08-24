@@ -10,57 +10,47 @@ const Booking = require('./models/Booking');
 // Sample data
 const sampleUsers = [
   {
-    username: 'maxadmin',
     email: 'max.admin@tsg-heilbronn.de',
     firstName: 'Max',
     lastName: 'Admin',
     password: 'Admin123!', // Will be hashed
     role: 'admin',
-    phone: '+49 7131 123456',
     verified: true,
     status: 'active'
   },
   {
-    username: 'sarah.smith',
     email: 'sarah.smith@tsg-heilbronn.de',
     firstName: 'Sarah',
     lastName: 'Smith',
     password: 'Sarah123!', // Will be hashed
     role: 'collaborator',
-    phone: '+49 7131 123457',
     verified: true,
     status: 'active'
   },
   {
-    username: 'john.doe',
     email: 'john.doe@tsg-heilbronn.de',
     firstName: 'John',
     lastName: 'Doe',
     password: 'John123!', // Will be hashed
     role: 'collaborator',
-    phone: '+49 7131 123458',
     verified: true,
     status: 'active'
   },
   {
-    username: 'emma.wilson',
     email: 'emma.wilson@tsg-heilbronn.de',
     firstName: 'Emma',
     lastName: 'Wilson',
     password: 'Emma123!', // Will be hashed
     role: 'collaborator',
-    phone: '+49 7131 123459',
     verified: true,
     status: 'active'
   },
   {
-    username: 'mike.johnson',
     email: 'mike.johnson@tsg-heilbronn.de',
     firstName: 'Mike',
     lastName: 'Johnson',
     password: 'Mike123!', // Will be hashed
     role: 'collaborator',
-    phone: '+49 7131 123460',
     verified: true,
     status: 'active'
   }
@@ -214,7 +204,7 @@ const seedDatabase = async () => {
       });
       await user.save();
       createdUsers.push(user);
-      console.log(`Created user: ${user.username} (${user.role})`);
+              console.log(`Created user: ${user.firstName} ${user.lastName} (${user.role})`);
     }
     
     // Insert facilities

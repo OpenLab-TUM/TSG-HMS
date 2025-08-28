@@ -1,12 +1,13 @@
 /* eslint-disable no-unused-vars */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Calendar, MapPin, Users, Clock, ChevronRight, Grid, List, Plus, Search, Map, User, Settings, LogOut, Home, X, Edit2, Trash2, Eye, Table2, ChevronLeft, Tag } from 'lucide-react';
+import { Calendar, MapPin, Users, Clock, ChevronRight, Grid, Plus, Search, Map, User, Settings, LogOut, Home, X, Edit2, Trash2, Eye, Table2, ChevronLeft, Tag } from 'lucide-react';
 import api from './services/api';
 import { useAuth, AuthProvider } from './contexts/AuthContext';
 import Login from './components/Login';
 import Register from './components/Register';
 import MapView from './components/MapView';
-import FloorPlanView from './components/FloorPlanView';
+import ToastContainer from './components/ToastContainer';
+import useToast from './hooks/useToast';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 import { createRoot } from 'react-dom/client';
@@ -17,9 +18,9 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarEleme
 
 const AppContent = () => {
   const { user, isAdmin, isCollaborator, canBook, canManageUsers, canManageFacilities, canViewReports, canEditBooking, canDeleteBooking, logout, login, register, loading: authLoading, error: authError, setError: setAuthError } = useAuth();
+  const { toasts, addToast, removeToast, showSuccess, showError, showWarning, showInfo } = useToast();
   
   const [currentView, setCurrentView] = useState('dashboard');
-  const [viewMode, setViewMode] = useState('list');
   const [selectedFacility, setSelectedFacility] = useState(null);
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [showBookingModal, setShowBookingModal] = useState(false);
@@ -42,16 +43,27 @@ const AppContent = () => {
   const purposeInputRef = useRef(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
+  const [filterFacilityId, setFilterFacilityId] = useState('all');
+  const [filterDate, setFilterDate] = useState(''); // yyyy-mm-dd
+  const [filterRecurring, setFilterRecurring] = useState('all'); // all | recurring | one-time
+  const [filterDuration, setFilterDuration] = useState('all'); // all | gt4h | lte4h
+  const [filterUser, setFilterUser] = useState('all'); // admin only
   const [facilities, setFacilities] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [users, setUsers] = useState([]);
   // Users page filters
   const [userVerifiedFilter, setUserVerifiedFilter] = useState('all'); // all | verified | unverified
   const [userActiveFilter, setUserActiveFilter] = useState('all'); // all | active | blocked
+  const [userSearchTerm, setUserSearchTerm] = useState('');
   const [selectedUser, setSelectedUser] = useState(null);
   const [showUserBookings, setShowUserBookings] = useState(false);
   const [dataLoading, setDataLoading] = useState(false);
   const [dataError, setDataError] = useState(null);
+  // Facilities filters
+  const [facilitySearchTerm, setFacilitySearchTerm] = useState('');
+  const [facilityStatusFilter, setFacilityStatusFilter] = useState('all');
+  const [equipmentSelected, setEquipmentSelected] = useState([]);
+  const [showAllEquipmentFilters, setShowAllEquipmentFilters] = useState(false);
   const [showAuth, setShowAuth] = useState('login'); // 'login' or 'register'
   const [showFacilityModal, setShowFacilityModal] = useState(false);
   const [editingFacility, setEditingFacility] = useState(null);
@@ -87,16 +99,16 @@ const AppContent = () => {
       try {
         if (!user) return; // skip until logged in
         setDataLoading(true);
-        setDataError(null);
-        const [facilitiesData, bookingsData, usersData] = await Promise.all([
-          api.getFacilities(),
-          api.getBookings(),
-          api.getUsers()
-        ]);
-        setFacilities(facilitiesData);
-        setBookings(bookingsData);
-        setUsers(usersData);
-      } catch (err) {
+              setDataError(null);
+      const [facilitiesData, bookingsData, usersData] = await Promise.all([
+        api.getFacilities(),
+        api.getBookings(),
+        api.getUsers()
+      ]);
+      setFacilities(facilitiesData);
+      setBookings(bookingsData);
+      setUsers(usersData);
+    } catch (err) {
         console.error('Error fetching data:', err);
         setDataError('Failed to load data. Please check if the backend is running.');
       } finally {
@@ -156,7 +168,7 @@ const AppContent = () => {
     try {
       const todayStr = new Date().toISOString().split('T')[0];
       if (bookingForm.date < todayStr) {
-        alert('Cannot update a booking to a past date.');
+        showError('Cannot update a booking to a past date.');
         return;
       }
       // Find the facility ID from the name
@@ -165,7 +177,7 @@ const AppContent = () => {
         throw new Error('Facility not found');
       }
       if ((facility.status || '').toLowerCase() !== 'open') {
-        alert('This facility is closed and cannot be booked.');
+        showError('This facility is closed and cannot be booked.');
         return;
       }
 
@@ -199,9 +211,10 @@ const AppContent = () => {
       });
       
       console.log('Booking updated successfully!');
+      showSuccess('Booking updated successfully!');
     } catch (error) {
       console.error('Error updating booking:', error);
-      alert('Failed to update booking: ' + error.message);
+      showError('Failed to update booking: ' + error.message);
     }
   };
 
@@ -209,12 +222,13 @@ const AppContent = () => {
   const handleDeleteBooking = async (bookingId) => {
     if (window.confirm('Are you sure you want to delete this booking?')) {
       try {
-        await api.deleteBooking(bookingId);
-        await refreshData();
-        console.log('Booking deleted successfully!');
-      } catch (error) {
+              await api.deleteBooking(bookingId);
+      await refreshData();
+      showSuccess('Booking deleted successfully');
+      console.log('Booking deleted successfully!');
+    } catch (error) {
         console.error('Error deleting booking:', error);
-        alert('Failed to delete booking: ' + error.message);
+        showError('Failed to delete booking: ' + error.message);
       }
     }
   };
@@ -222,12 +236,13 @@ const AppContent = () => {
   // Handle verify booking (admin)
   const handleVerifyBooking = async (bookingId) => {
     try {
-      await api.updateBooking(bookingId, { status: 'confirmed' });
+            await api.verifyBooking(bookingId);
       await refreshData();
+      showSuccess('Booking verified successfully');
     } catch (error) {
-      console.error('Error verifying booking:', error);
-      alert('Failed to verify booking: ' + error.message);
-    }
+        console.error('Error verifying booking:', error);
+        showError('Failed to verify booking: ' + error.message);
+      }
   };
 
   // Handle form field changes - use callback to prevent unnecessary re-renders
@@ -246,7 +261,7 @@ const AppContent = () => {
     try {
       const todayStr = new Date().toISOString().split('T')[0];
       if (bookingForm.date < todayStr) {
-        alert('Cannot create a booking in the past.');
+        showError('Cannot create a booking in the past.');
         return;
       }
       // Find the facility ID from the name
@@ -255,7 +270,7 @@ const AppContent = () => {
         throw new Error('Facility not found');
       }
       if ((facility.status || '').toLowerCase() !== 'open') {
-        alert('This facility is closed and cannot be booked.');
+        showError('This facility is closed and cannot be booked.');
         return;
       }
 
@@ -304,7 +319,7 @@ const AppContent = () => {
         }[bookingData.recurring];
         successMessage = `Booking created successfully! This ${recurringText} booking will repeat for the next 12 occurrences.`;
       }
-      alert(successMessage);
+      showSuccess(successMessage);
       
       console.log('Booking created successfully!');
     } catch (error) {
@@ -321,7 +336,7 @@ const AppContent = () => {
       } else if (error.message) {
         errorMessage += ': ' + error.message;
       }
-      alert(errorMessage);
+      showError(errorMessage);
     }
   };
 
@@ -365,15 +380,17 @@ const AppContent = () => {
 
       if (editingFacility) {
         await api.updateFacility(editingFacility._id, payload);
+        showSuccess('Facility updated successfully');
       } else {
         await api.createFacility(payload);
+        showSuccess('Facility created successfully');
       }
       await refreshData();
       setShowFacilityModal(false);
       setEditingFacility(null);
     } catch (error) {
       console.error('Error saving facility:', error);
-      alert('Failed to save facility: ' + (error.message || 'Unknown error'));
+      showError('Failed to save facility: ' + (error.message || 'Unknown error'));
     }
   };
 
@@ -382,9 +399,10 @@ const AppContent = () => {
     try {
       await api.deleteFacility(facilityId);
       await refreshData();
+      showSuccess('Facility deleted successfully');
     } catch (error) {
       console.error('Error deleting facility:', error);
-      alert('Failed to delete facility: ' + (error.message || 'Unknown error'));
+      showError('Failed to delete facility: ' + (error.message || 'Unknown error'));
     }
   };
 
@@ -396,9 +414,10 @@ const AppContent = () => {
     try {
       await api.updateUser(userId, { verified: false });
       await refreshData();
+      showSuccess('User unverified successfully');
     } catch (error) {
       console.error('Error unverifying user:', error);
-      alert('Failed to unverify user: ' + (error.message || 'Unknown error'));
+      showError('Failed to unverify user: ' + (error.message || 'Unknown error'));
     }
   };
 
@@ -409,9 +428,10 @@ const AppContent = () => {
     try {
       await api.updateUser(userId, { verified: true });
       await refreshData();
+      showSuccess('User verified successfully');
     } catch (error) {
       console.error('Error verifying user:', error);
-      alert('Failed to verify user: ' + (error.message || 'Unknown error'));
+      showError('Failed to verify user: ' + (error.message || 'Unknown error'));
     }
   };
 
@@ -423,9 +443,10 @@ const AppContent = () => {
     try {
       await api.deleteUser(userId);
       await refreshData();
+      showSuccess('User blocked successfully');
     } catch (error) {
       console.error('Error deactivating user:', error);
-      alert('Failed to block user: ' + (error.message || 'Unknown error'));
+      showError('Failed to block user: ' + (error.message || 'Unknown error'));
     }
   };
 
@@ -436,9 +457,10 @@ const AppContent = () => {
     try {
       await api.updateUser(userId, { isActive: true });
       await refreshData();
+      showSuccess('User unblocked successfully');
     } catch (error) {
       console.error('Error reactivating user:', error);
-      alert('Failed to unblock user: ' + (error.message || 'Unknown error'));
+      showError('Failed to unblock user: ' + (error.message || 'Unknown error'));
     }
   };
 
@@ -718,12 +740,93 @@ const AppContent = () => {
     const matchesSearch = booking.facilityName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           booking.userName.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           booking.purpose.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesFilter = filterStatus === 'all' || booking.status === filterStatus;
-    return matchesSearch && matchesFilter;
+    const matchesStatus = filterStatus === 'all' || booking.status === filterStatus;
+    const matchesFacility = filterFacilityId === 'all' || booking.facility === filterFacilityId;
+    const matchesDate = !filterDate || new Date(booking.date).toISOString().split('T')[0] === filterDate;
+    const isRecurring = booking.recurring && booking.recurring !== 'none';
+    const matchesRecurring = filterRecurring === 'all' || (filterRecurring === 'recurring' ? isRecurring : !isRecurring);
+    const [sh, sm] = (booking.startTime||'00:00').split(':').map(Number);
+    const [eh, em] = (booking.endTime||'00:00').split(':').map(Number);
+    const durationMinutes = (eh * 60 + em) - (sh * 60 + sm);
+    const matchesDuration = filterDuration === 'all' || (filterDuration === 'gt4h' ? durationMinutes > 240 : durationMinutes <= 240);
+    const matchesUser = !isAdmin() || filterUser === 'all' || booking.user === filterUser;
+    return matchesSearch && matchesStatus && matchesFacility && matchesDate && matchesRecurring && matchesDuration && matchesUser;
   });
 
   // Group recurring bookings for display
   const displayBookings = groupRecurringBookings(filteredBookings);
+  // Users filtering
+  const filteredUsers = useMemo(() => {
+    const term = userSearchTerm.trim().toLowerCase();
+    return users
+      .filter((u) => userVerifiedFilter === 'all' ? true : userVerifiedFilter === 'verified' ? u.verified : !u.verified)
+      .filter((u) => userActiveFilter === 'all' ? true : userActiveFilter === 'active' ? (u.isActive !== false) : (u.isActive === false))
+      .filter((u) => {
+        if (!term) return true;
+        const name = `${u.firstName || ''} ${u.lastName || ''}`.toLowerCase();
+        const email = (u.email || '').toLowerCase();
+        return name.includes(term) || email.includes(term);
+      });
+  }, [users, userVerifiedFilter, userActiveFilter, userSearchTerm]);
+
+  const activeUsersFilterCount = useMemo(() => {
+    let c = 0;
+    if (userVerifiedFilter !== 'all') c++;
+    if (userActiveFilter !== 'all') c++;
+    if (userSearchTerm.trim()) c++;
+    return c;
+  }, [userVerifiedFilter, userActiveFilter, userSearchTerm]);
+
+  const clearUsersFilters = () => {
+    setUserVerifiedFilter('all');
+    setUserActiveFilter('all');
+    setUserSearchTerm('');
+  };
+
+  // Bookings filters UI helpers
+  const activeBookingsFilterCount = useMemo(() => {
+    let c = 0;
+    if (filterStatus !== 'all') c++;
+    if (filterFacilityId !== 'all') c++;
+    if (filterDate) c++;
+    if (filterRecurring !== 'all') c++;
+    if (filterDuration !== 'all') c++;
+    if (isAdmin() && filterUser !== 'all') c++;
+    return c;
+  }, [filterStatus, filterFacilityId, filterDate, filterRecurring, filterDuration, filterUser]);
+
+  const clearBookingsFilters = () => {
+    setFilterStatus('all');
+    setFilterFacilityId('all');
+    setFilterDate('');
+    setFilterRecurring('all');
+    setFilterDuration('all');
+    setFilterUser('all');
+  };
+
+  // Unique equipment list for filters
+  const uniqueEquipment = useMemo(() => {
+    const all = new Set();
+    (facilities || []).forEach(f => (f.equipment || []).forEach(e => all.add(e)));
+    return Array.from(all).sort((a,b) => a.localeCompare(b));
+  }, [facilities]);
+
+  // Filter facilities list
+  const filteredFacilitiesList = useMemo(() => {
+    const search = facilitySearchTerm.toLowerCase();
+    return (facilities || []).filter(f => {
+      const matchesSearch = !search || f.name.toLowerCase().includes(search);
+      const matchesStatus = facilityStatusFilter === 'all' || (f.status || '').toLowerCase() === facilityStatusFilter;
+      const equipment = f.equipment || [];
+      const matchesEquipment = equipmentSelected.length === 0 || equipmentSelected.every(eq => equipment.includes(eq));
+      return matchesSearch && matchesStatus && matchesEquipment;
+    });
+  }, [facilities, facilitySearchTerm, facilityStatusFilter, equipmentSelected]);
+
+  const toggleEquipmentFilter = (eq) => {
+    setEquipmentSelected(prev => prev.includes(eq) ? prev.filter(e => e !== eq) : [...prev, eq]);
+  };
+  const clearEquipmentFilter = () => setEquipmentSelected([]);
 
   // Helpers for privacy masking in timetable for collaborators
   const shouldMaskBooking = (booking) => {
@@ -786,8 +889,44 @@ const AppContent = () => {
     }
   };
 
+  // Helper function to check if a timeslot is booked
+  const isTimeslotBooked = (facility, dayKey, slotIdx) => {
+    if (!facility || !bookings || bookings.length === 0) return false;
+    
+    // Convert slot index to time string (e.g., slotIdx 0 = "07:00", slotIdx 1 = "07:30")
+    const hour = 7 + Math.floor(slotIdx / 2);
+    const minute = slotIdx % 2 === 0 ? '00' : '30';
+    
+    // Get the day name from the dayKey
+    const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+    const dayIndex = dayNames.indexOf(dayKey);
+    
+    // Get today's date and calculate the target date
+    const today = new Date();
+    const targetDate = new Date(today);
+    targetDate.setDate(today.getDate() + (dayIndex - today.getDay() + 7) % 7);
+    const targetDateStr = targetDate.toISOString().split('T')[0];
+    
+    // Check if any booking overlaps with this timeslot
+    return bookings.some(booking => {
+      const bookingDate = new Date(booking.date).toISOString().split('T')[0];
+      if (booking.facilityName !== facility.name || bookingDate !== targetDateStr) return false;
+      
+      // Check if the timeslot overlaps with the booking
+      const [startHour, startMin] = booking.startTime.split(':').map(Number);
+      const [endHour, endMin] = booking.endTime.split(':').map(Number);
+      const startMinutes = startHour * 60 + startMin;
+      const endMinutes = endHour * 60 + endMin;
+      const slotStartMinutes = hour * 60 + minute;
+      const slotEndMinutes = slotStartMinutes + 30; // Each slot is 30 minutes
+      
+      // Check for overlap
+      return slotStartMinutes < endMinutes && slotEndMinutes > startMinutes;
+    });
+  };
+
   // Reusable component to render half-hour opening grid
-  const OpeningHoursGrid = ({ grid, onToggle, readOnly = false }) => {
+  const OpeningHoursGrid = ({ grid, onToggle, readOnly = false, facility = null }) => {
     const scrollRef = useRef(null);
     const containerRef = useRef(null);
     const days = [
@@ -820,7 +959,17 @@ const AppContent = () => {
                 <div className="text-gray-600 w-14 text-xs">{label}</div>
                 {days.map(d => {
                   const isOpen = grid?.[d.key]?.[slotIdx] !== false;
-                  const common = `h-6 rounded transition-colors ${isOpen ? 'bg-green-200' : 'bg-red-200'}`;
+                  const isBooked = facility && isTimeslotBooked(facility, d.key, slotIdx);
+                  
+                  let bgColor = 'bg-red-200'; // Default: closed
+                  if (isBooked) {
+                    bgColor = 'bg-orange-400'; // Booked
+                  } else if (isOpen) {
+                    bgColor = 'bg-green-200'; // Open
+                  }
+                  
+                  const common = `h-6 rounded transition-colors ${bgColor}`;
+                  
                   if (readOnly) {
                     return <div key={`${d.key}-${slotIdx}`} className={common}></div>;
                   }
@@ -841,7 +990,7 @@ const AppContent = () => {
                           }
                         }, 0);
                       }}
-                      title={`${d.label} ${label} ${isOpen ? 'Open' : 'Closed'}`}
+                      title={`${d.label} ${label} ${isBooked ? 'Booked' : isOpen ? 'Open' : 'Closed'}`}
                     />
                   );
                 })}
@@ -1062,22 +1211,7 @@ const AppContent = () => {
           </div>
         )}
         
-        {(currentView === 'bookings' || currentView === 'facilities') && (
-          <div className="flex items-center space-x-2 bg-gray-100 rounded-lg p-1">
-            <button
-              onClick={() => setViewMode('list')}
-              className={`px-3 py-1 rounded ${viewMode === 'list' ? 'bg-white shadow-sm' : ''}`}
-            >
-              <List className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setViewMode('grid')}
-              className={`px-3 py-1 rounded ${viewMode === 'grid' ? 'bg-white shadow-sm' : ''}`}
-            >
-              <Grid className="w-4 h-4" />
-            </button>
-          </div>
-        )}
+        {/* Removed list/grid toggle */}
         
         <button
           onClick={() => setShowBookingModal(true)}
@@ -1092,44 +1226,97 @@ const AppContent = () => {
 
   const DashboardView = () => (
     <div className="p-8">
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-          <div className="flex items-center justify-between mb-4">
-            <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
-              <MapPin className="w-6 h-6 text-blue-600" />
+      {/* Stat cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div className="relative overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+          <div className="absolute inset-0 bg-gradient-to-tr from-blue-50/80 to-transparent" />
+          <div className="relative p-6">
+            <div className="flex items-center justify-between mb-5">
+              <div className="w-12 h-12 rounded-xl bg-blue-100 flex items-center justify-center">
+                <MapPin className="w-6 h-6 text-blue-600" />
+              </div>
+              <span className="text-xs font-medium text-gray-500">Total</span>
             </div>
-            <span className="text-xs text-gray-500">Total</span>
+            <div className="flex items-baseline space-x-2">
+              <h3 className="text-3xl font-bold tracking-tight text-gray-900">{facilities.length}</h3>
+              <span className="text-sm text-gray-500">Facilities</span>
+            </div>
           </div>
-          <h3 className="text-2xl font-bold text-gray-900">{facilities.length}</h3>
-          <p className="text-sm text-gray-600">Facilities</p>
         </div>
-        
-        <div className="bg-white rounded-xl shadow-sm p-6 border border-gray-200">
-          <div className="flex items-center justify-between mb-4">
-            <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
-              <Calendar className="w-6 h-6 text-green-600" />
+
+        <div className="relative overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+          <div className="absolute inset-0 bg-gradient-to-tr from-green-50/80 to-transparent" />
+          <div className="relative p-6">
+            <div className="flex items-center justify-between mb-5">
+              <div className="w-12 h-12 rounded-xl bg-green-100 flex items-center justify-center">
+                <Calendar className="w-6 h-6 text-green-600" />
+              </div>
+              <span className="text-xs font-medium text-gray-500">Today</span>
             </div>
-            <span className="text-xs text-gray-500">Today</span>
+            <div className="flex items-baseline space-x-2">
+              <h3 className="text-3xl font-bold tracking-tight text-gray-900">{bookings.filter(b => {
+                const today = new Date().toISOString().split('T')[0];
+                const bookingDate = new Date(b.date).toISOString().split('T')[0];
+                return bookingDate === today;
+              }).length}</h3>
+              <span className="text-sm text-gray-500">Bookings</span>
+            </div>
           </div>
-          <h3 className="text-2xl font-bold text-gray-900">{bookings.filter(b => {
-            const today = new Date().toISOString().split('T')[0];
-            const bookingDate = new Date(b.date).toISOString().split('T')[0];
-            return bookingDate === today;
-          }).length}</h3>
-          <p className="text-sm text-gray-600">Bookings</p>
+        </div>
+
+        {/* Open Facilities */}
+        <div className="relative overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+          <div className="absolute inset-0 bg-gradient-to-tr from-emerald-50/80 to-transparent" />
+          <div className="relative p-6">
+            <div className="flex items-center justify-between mb-5">
+              <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center">
+                <Home className="w-6 h-6 text-emerald-600" />
+              </div>
+              <span className="text-xs font-medium text-gray-500">Open</span>
+            </div>
+            <div className="flex items-baseline space-x-2">
+              <h3 className="text-3xl font-bold tracking-tight text-gray-900">{facilities.filter(f => f.status === 'open').length}</h3>
+              <span className="text-sm text-gray-500">Facilities</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Bookings next 7 days */}
+        <div className="relative overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm">
+          <div className="absolute inset-0 bg-gradient-to-tr from-purple-50/80 to-transparent" />
+          <div className="relative p-6">
+            <div className="flex items-center justify-between mb-5">
+              <div className="w-12 h-12 rounded-xl bg-purple-100 flex items-center justify-center">
+                <Clock className="w-6 h-6 text-purple-600" />
+              </div>
+              <span className="text-xs font-medium text-gray-500">Next 7 days</span>
+            </div>
+            <div className="flex items-baseline space-x-2">
+              <h3 className="text-3xl font-bold tracking-tight text-gray-900">{bookings.filter(b => {
+                const now = new Date();
+                const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                const d = new Date(b.date);
+                const dayOnly = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+                const diffDays = (dayOnly - today) / (1000 * 60 * 60 * 24);
+                return diffDays >= 0 && diffDays < 7;
+              }).length}</h3>
+              <span className="text-sm text-gray-500">Bookings</span>
+            </div>
+          </div>
         </div>
       </div>
-      
+
+      {/* Panels */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-          <div className="p-6 border-b border-gray-200 flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-gray-900">Today's Schedule</h3>
+        <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
+          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+            <h3 className="text-base font-semibold text-gray-900">Today's Schedule</h3>
             <button
               onClick={refreshData}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+              className="inline-flex items-center rounded-lg px-2 py-1 text-sm text-gray-600 hover:bg-gray-100"
               title="Refresh data"
             >
-              <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
             </button>
@@ -1140,9 +1327,9 @@ const AppContent = () => {
               const bookingDate = new Date(b.date).toISOString().split('T')[0];
               return bookingDate === today;
             }).map(booking => (
-              <div key={booking._id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+              <div key={booking._id} className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
                 <div className="flex items-center space-x-4">
-                  <div className="w-2 h-12 bg-blue-600 rounded-full"></div>
+                  <div className="w-1.5 h-10 rounded-full bg-blue-600" />
                   <div>
                     <p className="font-medium text-gray-900">{booking.facilityName}</p>
                     <p className="text-sm text-gray-600">{booking.startTime}-{booking.endTime} • {booking.userName}</p>
@@ -1158,29 +1345,29 @@ const AppContent = () => {
               const bookingDate = new Date(b.date).toISOString().split('T')[0];
               return bookingDate === today;
             }).length === 0 && (
-              <div className="text-center py-8 text-gray-500">
-                <Calendar className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+              <div className="text-center py-10 text-gray-500">
+                <Calendar className="w-12 h-12 mx-auto mb-3 text-gray-300" />
                 <p>No bookings scheduled for today</p>
               </div>
             )}
           </div>
         </div>
-        
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-          <div className="p-6 border-b border-gray-200">
-            <h3 className="text-lg font-semibold text-gray-900">Facility Status</h3>
+
+        <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <h3 className="text-base font-semibold text-gray-900">Facility Status</h3>
           </div>
           <div className="p-6">
-            <div className="grid grid-cols-2 gap-4">
-              {facilities.slice(0, 4).map(facility => (
-                <div key={facility._id} className="p-4 border border-gray-200 rounded-lg">
-                  <div className="flex items-center justify-between mb-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {facilities.slice(0, 6).map(facility => (
+                <div key={facility._id} className="flex items-center justify-between rounded-xl border border-gray-200 px-4 py-3">
+                  <div>
                     <h4 className="font-medium text-gray-900 text-sm">{facility.name}</h4>
-                    <div className={`w-3 h-3 rounded-full ${
-                      facility.status === 'open' ? 'bg-green-500' : 'bg-red-500'
-                    }`}></div>
+                    <p className="text-xs text-gray-500">Status</p>
                   </div>
-                  <p className="text-xs text-gray-600 capitalize">{facility.status}</p>
+                  <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${facility.status === 'open' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                    {facility.status}
+                  </span>
                 </div>
               ))}
             </div>
@@ -1194,33 +1381,76 @@ const AppContent = () => {
     <div className="p-8">
       <div className="bg-white rounded-xl shadow-sm border border-gray-200">
         <div className="p-6 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4 flex-1">
-              <div className="relative flex-1 max-w-md">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                <input
-                  type="text"
-                  placeholder="Search bookings..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                />
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="relative flex-1 min-w-[220px] max-w-md">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+              <input
+                type="text"
+                placeholder="Search bookings..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">
+                <span className="text-xs text-gray-500">Status</span>
+                <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="bg-transparent text-sm focus:outline-none focus:ring-0">
+                  <option value="all">All</option>
+                  <option value="confirmed">Confirmed</option>
+                  <option value="pending">Pending</option>
+                  <option value="cancelled">Cancelled</option>
+                  <option value="completed">Completed</option>
+                </select>
               </div>
-              
-              <select
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className="px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="all">All Status</option>
-                <option value="confirmed">Confirmed</option>
-                <option value="pending">Pending</option>
-              </select>
+              <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">
+                <span className="text-xs text-gray-500">Facility</span>
+                <select value={filterFacilityId} onChange={(e) => setFilterFacilityId(e.target.value)} className="bg-transparent text-sm focus:outline-none focus:ring-0">
+                  <option value="all">All</option>
+                  {facilities.map(f => (<option key={f._id} value={f._id}>{f.name}</option>))}
+                </select>
+              </div>
+              <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">
+                <span className="text-xs text-gray-500">Date</span>
+                <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className="bg-transparent text-sm focus:outline-none focus:ring-0" />
+              </div>
+              <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">
+                <span className="text-xs text-gray-500">Type</span>
+                <select value={filterRecurring} onChange={(e) => setFilterRecurring(e.target.value)} className="bg-transparent text-sm focus:outline-none focus:ring-0">
+                  <option value="all">All</option>
+                  <option value="recurring">Recurring</option>
+                  <option value="one-time">One-time</option>
+                </select>
+              </div>
+              <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">
+                <span className="text-xs text-gray-500">Duration</span>
+                <select value={filterDuration} onChange={(e) => setFilterDuration(e.target.value)} className="bg-transparent text-sm focus:outline-none focus:ring-0">
+                  <option value="all">All</option>
+                  <option value="gt4h">&gt; 4h</option>
+                  <option value="lte4h">≤ 4h</option>
+                </select>
+              </div>
+              {isAdmin() && (
+                <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">
+                  <span className="text-xs text-gray-500">User</span>
+                  <select value={filterUser} onChange={(e) => setFilterUser(e.target.value)} className="bg-transparent text-sm focus:outline-none focus:ring-0">
+                    <option value="all">All</option>
+                    {users.map(u => (<option key={u._id} value={u._id}>{u.firstName} {u.lastName}</option>))}
+                  </select>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-500">{displayBookings.length} bookings</span>
+              {activeBookingsFilterCount > 0 && (
+                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">{activeBookingsFilterCount} active</span>
+              )}
+              <button onClick={clearBookingsFilters} className="px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50" title="Clear filters">Clear</button>
             </div>
           </div>
         </div>
         
-        {viewMode === 'list' ? (
+        {
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -1307,157 +1537,82 @@ const AppContent = () => {
               </tbody>
             </table>
           </div>
-        ) : (
-          <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {displayBookings.map(booking => (
-              <div key={booking._id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-                <div className="flex items-start justify-between mb-3">
-                  <h4 className="font-semibold text-gray-900">{booking.facilityName}</h4>
-                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(booking.status)}`}>
-                    {booking.status}
-                  </span>
-                </div>
-                <div className="space-y-2 text-sm text-gray-600">
-                  <p className="flex items-center">
-                    <Calendar className="w-4 h-4 mr-2" />
-                    {new Date(booking.date).toLocaleDateString()}
-                    {booking.isRecurring && (
-                      <span className="ml-2 text-xs text-blue-600 font-medium">
-                        (+{booking.recurrenceCount - 1} more)
-                      </span>
-                    )}
-                  </p>
-                  <p className="flex items-center">
-                    <Clock className="w-4 h-4 mr-2" />
-                    {booking.startTime}-{booking.endTime}
-                  </p>
-                  <p className="flex items-center">
-                    <User className="w-4 h-4 mr-2" />
-                    {booking.userName}
-                  </p>
-                  <p className="flex items-center">
-                    <Tag className="w-4 h-4 mr-2" />
-                    {booking.purpose}
-                  </p>
-                  {booking.isRecurring && (
-                    <p className="flex items-center">
-                      <span className="w-4 h-4 mr-2 text-blue-600 font-bold text-lg">
-                        {getRecurrenceInfo(booking.recurrencePattern, booking.recurrenceCount).symbol}
-                      </span>
-                      <span className="text-xs text-blue-600">
-                        {getRecurrenceInfo(booking.recurrencePattern, booking.recurrenceCount).tooltip}
-                      </span>
-                    </p>
-                  )}
-                </div>
-                <div className="mt-4 pt-4 border-t border-gray-100">
-                  <p className="text-sm text-gray-700 font-medium">{booking.purpose}</p>
-                </div>
-                <div className="mt-3 flex items-center justify-end">
-                  <button 
-                    onClick={() => setSelectedBooking(booking)}
-                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                    title="View details"
-                  >
-                    <Eye className="w-4 h-4 text-gray-600" />
-                  </button>
-                </div>
-                                        {(isAdmin() || canEditBooking(booking)) && !isBookingPast(booking) && (
-                  <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-end space-x-2">
-                    <button 
-                      onClick={() => handleEditBooking(booking)}
-                      className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                      title="Edit booking"
-                    >
-                      <Edit2 className="w-4 h-4 text-gray-600" />
-                    </button>
-                    {isAdmin() && booking.status === 'pending' && (
-                      <button 
-                        onClick={() => handleVerifyBooking(booking._id)}
-                        className="px-3 py-1 text-xs border border-green-300 text-green-700 rounded hover:bg-green-50"
-                      >
-                        Verify
-                      </button>
-                    )}
-                    <button 
-                      onClick={() => handleDeleteBooking(booking._id)}
-                      className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                      title="Delete booking"
-                    >
-                      <Trash2 className="w-4 h-4 text-red-600" />
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
+        }
       </div>
     </div>
   );
 
   const FacilitiesView = () => (
     <div className="p-8">
-      {viewMode === 'grid' ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {facilities.map(facility => (
-            <div key={facility._id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden hover:shadow-lg transition-shadow">
-              <div className="h-32 bg-gradient-to-br from-blue-500 to-blue-600 relative">
-                <div className="absolute top-4 right-4">
-                  <div className={`w-3 h-3 rounded-full ${
-                    facility.status === 'open' ? 'bg-green-400' : 'bg-red-400'
-                  } ring-2 ring-white`}></div>
-                </div>
-                <div className="absolute bottom-4 left-4 text-white">
-                  <h3 className="text-lg font-semibold">{facility.name}</h3>
-                </div>
-              </div>
-              <div className="p-6">
-                <div className="grid grid-cols-2 gap-4 mb-4">
-                  <div>
-                    <p className="text-xs text-gray-500 mb-1">Status</p>
-                    <p className="font-medium text-gray-900 capitalize">{facility.status}</p>
-                  </div>
-                </div>
-                <div className="mb-4">
-                  <p className="text-xs text-gray-500 mb-2">Equipment</p>
-                  <div className="flex flex-wrap gap-2">
-                    {facility.equipment.map((item, index) => (
-                      <span key={index} className="px-2 py-1 bg-gray-100 text-gray-700 rounded text-xs">
-                        {item}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <button
-                    onClick={() => setSelectedFacility(facility)}
-                    className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
-                  >
-                    View Details
-                  </button>
-                  {canManageFacilities() && (
-                    <>
-                      <button
-                        onClick={() => openEditFacility(facility)}
-                        className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDeleteFacility(facility._id)}
-                        className="px-4 py-2 border border-red-300 text-red-600 rounded-lg text-sm hover:bg-red-50"
-                      >
-                        Delete
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
+        <div className="p-4 border-b border-gray-200">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="relative flex-1 min-w-[240px] max-w-lg">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+              <input
+                type="text"
+                placeholder="Search facilities..."
+                value={facilitySearchTerm}
+                onChange={(e) => setFacilitySearchTerm(e.target.value)}
+                className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
             </div>
-          ))}
+            <div className="flex items-center gap-2">
+              <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-full pl-3 pr-2 py-1.5">
+                <span className="text-xs text-gray-500">Status</span>
+                <select
+                  value={facilityStatusFilter}
+                  onChange={(e) => setFacilityStatusFilter(e.target.value)}
+                  className="bg-transparent text-sm focus:outline-none focus:ring-0"
+                >
+                  <option value="all">All</option>
+                  <option value="open">Open</option>
+                  <option value="closed">Closed</option>
+                </select>
+              </div>
+              <span className="text-sm text-gray-500">{filteredFacilitiesList.length} facilities</span>
+              {equipmentSelected.length > 0 && (
+                <span className="hidden sm:inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">{equipmentSelected.length} selected</span>
+              )}
+              {equipmentSelected.length > 0 && (
+                <button onClick={clearEquipmentFilter} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Clear</button>
+              )}
+            </div>
+          </div>
         </div>
-      ) : (
+        <div className="p-3">
+          <div className="flex items-center justify-between mb-2">
+            <h4 className="text-sm font-semibold text-gray-700">Equipment</h4>
+            {uniqueEquipment.length > 12 && (
+              <button onClick={() => setShowAllEquipmentFilters(v => !v)} className="text-xs text-blue-600 hover:text-blue-700">
+                {showAllEquipmentFilters ? 'Show less' : 'Show more'}
+              </button>
+            )}
+          </div>
+          <div className="flex flex-row flex-wrap gap-2 overflow-x-auto sm:overflow-visible pr-1">
+            {uniqueEquipment.length === 0 ? (
+              <span className="text-xs text-gray-500">No equipment found</span>
+            ) : (
+              (showAllEquipmentFilters ? uniqueEquipment : uniqueEquipment.slice(0, 12)).map(eq => {
+                const selected = equipmentSelected.includes(eq);
+                return (
+                  <button
+                    key={eq}
+                    type="button"
+                    onClick={() => toggleEquipmentFilter(eq)}
+                    className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs border transition-colors ${selected ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                    title={eq}
+                  >
+                    {selected && <span className="w-1.5 h-1.5 rounded-full bg-white"></span>}
+                    {eq}
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </div>
+      {
         <div className="bg-white rounded-xl shadow-sm border border-gray-200">
           <div className="overflow-x-auto">
             <table className="w-full">
@@ -1470,7 +1625,7 @@ const AppContent = () => {
                 </tr>
               </thead>
               <tbody>
-                {facilities.map(facility => (
+                {filteredFacilitiesList.map(facility => (
                   <tr key={facility._id} className="border-b border-gray-100 hover:bg-gray-50">
                     <td className="p-4 font-medium">{facility.name}</td>
                     <td className="p-4">
@@ -1494,23 +1649,26 @@ const AppContent = () => {
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() => setSelectedFacility(facility)}
-                          className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                          title="View details"
                         >
-                          View Details
+                          <Eye className="w-4 h-4 text-blue-600" />
                         </button>
                         {canManageFacilities() && (
                           <>
                             <button
                               onClick={() => openEditFacility(facility)}
-                              className="text-gray-700 hover:text-gray-900 text-sm font-medium"
+                              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                              title="Edit facility"
                             >
-                              Edit
+                              <Edit2 className="w-4 h-4 text-gray-600" />
                             </button>
                             <button
                               onClick={() => handleDeleteFacility(facility._id)}
-                              className="text-red-600 hover:text-red-700 text-sm font-medium"
+                              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                              title="Delete facility"
                             >
-                              Delete
+                              <Trash2 className="w-4 h-4 text-red-600" />
                             </button>
                           </>
                         )}
@@ -1522,7 +1680,7 @@ const AppContent = () => {
             </table>
           </div>
         </div>
-      )}
+      }
     </div>
   );
 
@@ -2184,7 +2342,24 @@ const AppContent = () => {
               <OpeningHoursGrid
                 grid={selectedFacility.openingHoursGrid}
                 readOnly
+                facility={selectedFacility}
               />
+              
+              {/* Color Legend */}
+              <div className="mt-4 flex items-center space-x-6 text-sm">
+                <div className="flex items-center space-x-2">
+                  <div className="w-4 h-4 bg-green-200 rounded"></div>
+                  <span className="text-gray-600">Available</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-4 h-4 bg-orange-400 rounded"></div>
+                  <span className="text-gray-600">Booked</span>
+                </div>
+                <div className="flex items-center space-x-2">
+                  <div className="w-4 h-4 bg-red-200 rounded"></div>
+                  <span className="text-gray-600">Closed</span>
+                </div>
+              </div>
             </div>
             
             <div className="mt-6 flex items-center justify-end space-x-3">
@@ -2471,6 +2646,7 @@ const AppContent = () => {
                     }
                   }));
                 }}
+                facility={editingFacility}
               />
             </div>
           </div>
@@ -2488,6 +2664,7 @@ const AppContent = () => {
             const result = await login(formData);
             if (result?.success) {
               setCurrentView('dashboard');
+              showSuccess('Welcome back!');
             }
           }}
           onSwitchToRegister={() => {
@@ -2505,6 +2682,7 @@ const AppContent = () => {
               // After successful registration, switch to login screen
               setAuthError(null);
               setShowAuth('login');
+              showSuccess('Registration successful! Please log in.');
             }
           }}
           onSwitchToLogin={() => {
@@ -2567,30 +2745,54 @@ const AppContent = () => {
         {currentView === 'users' && (
           <div className="p-8">
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
-              <div className="p-6 border-b border-gray-200 flex items-center justify-between">
-                <h3 className="text-lg font-semibold text-gray-900">All Users</h3>
+              <div className="p-6 border-b border-gray-200 flex items-center justify-between gap-4 flex-wrap">
                 <div className="flex items-center gap-3">
-                  <div className="text-sm text-gray-500 mr-1">{users.length} total</div>
-                  <select
-                    value={userVerifiedFilter}
-                    onChange={(e) => setUserVerifiedFilter(e.target.value)}
-                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                    title="Filter by verification"
-                  >
-                    <option value="all">All</option>
-                    <option value="verified">Verified</option>
-                    <option value="unverified">Unverified</option>
-                  </select>
-                  <select
-                    value={userActiveFilter}
-                    onChange={(e) => setUserActiveFilter(e.target.value)}
-                    className="px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                    title="Filter by status"
-                  >
-                    <option value="all">All</option>
-                    <option value="active">Active</option>
-                    <option value="blocked">Blocked</option>
-                  </select>
+                  <h3 className="text-lg font-semibold text-gray-900">All Users</h3>
+                  <div className="text-sm text-gray-500">{filteredUsers.length} shown</div>
+                </div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="relative min-w-[220px]">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                    <input
+                      type="text"
+                      placeholder="Search name or email..."
+                      value={userSearchTerm}
+                      onChange={(e) => setUserSearchTerm(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-full pl-3 pr-2 py-1.5">
+                    <span className="text-xs text-gray-500">Verified</span>
+                    <select
+                      value={userVerifiedFilter}
+                      onChange={(e) => setUserVerifiedFilter(e.target.value)}
+                      className="bg-transparent text-sm focus:outline-none focus:ring-0"
+                      title="Filter by verification"
+                    >
+                      <option value="all">All</option>
+                      <option value="verified">Yes</option>
+                      <option value="unverified">No</option>
+                    </select>
+                  </div>
+                  <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-full pl-3 pr-2 py-1.5">
+                    <span className="text-xs text-gray-500">Status</span>
+                    <select
+                      value={userActiveFilter}
+                      onChange={(e) => setUserActiveFilter(e.target.value)}
+                      className="bg-transparent text-sm focus:outline-none focus:ring-0"
+                      title="Filter by status"
+                    >
+                      <option value="all">All</option>
+                      <option value="active">Active</option>
+                      <option value="blocked">Blocked</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {activeUsersFilterCount > 0 && (
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">{activeUsersFilterCount} active</span>
+                  )}
+                  <button onClick={clearUsersFilters} className="px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Clear</button>
                 </div>
               </div>
               <div className="overflow-x-auto">
@@ -2606,10 +2808,7 @@ const AppContent = () => {
                     </tr>
                   </thead>
                   <tbody>
-                    {users
-                      .filter((u) => userVerifiedFilter === 'all' ? true : userVerifiedFilter === 'verified' ? u.verified : !u.verified)
-                      .filter((u) => userActiveFilter === 'all' ? true : userActiveFilter === 'active' ? (u.isActive !== false) : (u.isActive === false))
-                      .map((u) => (
+                    {filteredUsers.map((u) => (
                       <tr key={u._id} className="border-b border-gray-100 hover:bg-gray-50">
                         <td className="p-4 font-medium">
                           <button
@@ -2752,6 +2951,9 @@ const AppContent = () => {
       {selectedBooking && <BookingDetailModal />}
       {showFacilityModal && canManageFacilities() && <FacilityModal />}
       {showUserBookings && <UserBookingsModal />}
+      
+      {/* Toast Container */}
+      <ToastContainer toasts={toasts} removeToast={removeToast} />
     </div>
   );
 };

@@ -29,18 +29,24 @@ router.get('/:id', async (req, res) => {
 // POST create new facility
 router.post('/', [
   body('name').notEmpty().withMessage('Name is required'),
-  body('status').isIn(['open', 'closed']).withMessage('Invalid status')
+  body('status').isIn(['open', 'closed']).withMessage('Invalid status'),
+  body('equipment').optional().isArray().withMessage('Equipment must be an array'),
+  body('openingHoursGrid').optional().isObject().withMessage('Opening hours grid must be an object')
 ], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
+    console.log('Validation errors:', errors.array());
+    console.log('Request body:', req.body);
     return res.status(400).json({ errors: errors.array() });
   }
 
   try {
+    console.log('Creating facility with data:', req.body);
     const facility = new Facility(req.body);
     await facility.save();
     res.status(201).json(facility);
   } catch (error) {
+    console.error('Error creating facility:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });
@@ -48,14 +54,19 @@ router.post('/', [
 // PUT update facility
 router.put('/:id', [
   body('name').notEmpty().withMessage('Name is required'),
-  body('status').isIn(['open', 'closed']).withMessage('Invalid status')
+  body('status').isIn(['open', 'closed']).withMessage('Invalid status'),
+  body('equipment').optional().isArray().withMessage('Equipment must be an array'),
+  body('openingHoursGrid').optional().isObject().withMessage('Opening hours grid must be an object')
 ], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
+    console.log('Validation errors:', errors.array());
+    console.log('Request body:', req.body);
     return res.status(400).json({ errors: errors.array() });
   }
 
   try {
+    console.log('Updating facility with data:', req.body);
     const facility = await Facility.findByIdAndUpdate(
       req.params.id,
       req.body,
@@ -68,6 +79,7 @@ router.put('/:id', [
     
     res.json(facility);
   } catch (error) {
+    console.error('Error updating facility:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });

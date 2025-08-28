@@ -39,4 +39,29 @@ const facilitySchema = new mongoose.Schema({
   timestamps: true
 });
 
+// Add geospatial index for location queries only when coordinates exist
+facilitySchema.index({ location: '2dsphere' }, { sparse: true });
+
+// Pre-save middleware to handle location field conditionally
+facilitySchema.pre('save', function(next) {
+  // Only include location if coordinates are provided
+  if (!this.location || !this.location.coordinates) {
+    this.location = undefined;
+  }
+  next();
+});
+
+// Instance method to set location coordinates
+facilitySchema.methods.setLocation = function(longitude, latitude) {
+  if (longitude !== undefined && latitude !== undefined) {
+    this.location = {
+      type: 'Point',
+      coordinates: [longitude, latitude]
+    };
+  } else {
+    this.location = undefined;
+  }
+  return this;
+};
+
 module.exports = mongoose.model('Facility', facilitySchema);

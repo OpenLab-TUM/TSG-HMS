@@ -5,10 +5,7 @@ const { body, validationResult } = require('express-validator');
 const User = require('../models/User');
 const router = express.Router();
 
-// JWT Secret (should be in environment variables)
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key-change-in-production';
-
-
+const JWT_SECRET = process.env.JWT_SECRET;
 
 // Middleware to verify JWT token
 const authenticateToken = async (req, res, next) => {

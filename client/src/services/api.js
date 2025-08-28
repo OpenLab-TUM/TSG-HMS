@@ -104,6 +104,19 @@ class ApiService {
     });
   }
 
+  async updateBookingDetails(id, bookingData) {
+    return this.request(`/bookings/${id}/details`, {
+      method: 'PUT',
+      body: JSON.stringify(bookingData),
+    });
+  }
+
+  async verifyBooking(id) {
+    return this.request(`/bookings/${id}/verify`, {
+      method: 'POST',
+    });
+  }
+
   async deleteBooking(id) {
     return this.request(`/bookings/${id}`, {
       method: 'DELETE',

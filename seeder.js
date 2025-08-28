@@ -59,6 +59,10 @@ const sampleUsers = [
 const sampleFacilities = [
   {
     name: 'Main Sports Hall',
+    location: {
+      type: 'Point',
+      coordinates: [9.1829, 48.7758] // Stuttgart coordinates
+    },
     capacity: 500,
     size: '40x20m',
     status: 'available',
@@ -78,6 +82,10 @@ const sampleFacilities = [
   },
   {
     name: 'Fitness Studio A',
+    location: {
+      type: 'Point',
+      coordinates: [9.1835, 48.7762] // Slightly north of main hall
+    },
     capacity: 30,
     size: '15x10m',
     status: 'available',
@@ -97,6 +105,10 @@ const sampleFacilities = [
   },
   {
     name: 'Fitness Studio B',
+    location: {
+      type: 'Point',
+      coordinates: [9.1830, 48.7765] // North-east of main hall
+    },
     capacity: 25,
     size: '12x8m',
     status: 'available',
@@ -116,11 +128,15 @@ const sampleFacilities = [
   },
   {
     name: 'Multi-Purpose Room',
+    location: {
+      type: 'Point',
+      coordinates: [9.1825, 48.7755] // South-west of main hall
+    },
     capacity: 100,
     size: '20x15m',
     status: 'available',
     equipment: ['Projector', 'Chairs', 'Tables', 'Sound system'],
-    color: '#8b5cf6',
+    color: '#8b981',
     description: 'Versatile space for meetings, presentations, and small events',
     openingHours: {
       monday: { open: '08:00', close: '22:00' },
@@ -135,6 +151,10 @@ const sampleFacilities = [
   },
   {
     name: 'Gymnastics Hall',
+    location: {
+      type: 'Point',
+      coordinates: [9.1840, 48.7760] // East of main hall
+    },
     capacity: 200,
     size: '30x20m',
     status: 'available',
@@ -154,6 +174,10 @@ const sampleFacilities = [
   },
   {
     name: 'Meeting Room',
+    location: {
+      type: 'Point',
+      coordinates: [9.1820, 48.7750] // South of main hall
+    },
     capacity: 20,
     size: '8x6m',
     status: 'available',

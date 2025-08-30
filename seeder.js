@@ -63,22 +63,34 @@ const sampleFacilities = [
       type: 'Point',
       coordinates: [9.1829, 48.7758] // Stuttgart coordinates
     },
-    capacity: 500,
-    size: '40x20m',
-    status: 'available',
+    status: 'open',
     equipment: ['Basketball hoops', 'Volleyball net', 'Badminton courts', 'Table tennis tables'],
-    color: '#10b981',
-    description: 'Main indoor sports facility with multiple courts and equipment',
-    openingHours: {
-      monday: { open: '06:00', close: '23:00' },
-      tuesday: { open: '06:00', close: '23:00' },
-      wednesday: { open: '06:00', close: '23:00' },
-      thursday: { open: '06:00', close: '23:00' },
-      friday: { open: '06:00', close: '23:00' },
-      saturday: { open: '08:00', close: '22:00' },
-      sunday: { open: '08:00', close: '22:00' }
-    },
-    hourlyRate: 50
+          halls: [
+        {
+          name: 'Main Court',
+          status: 'open',
+          openingHoursGrid: Array(30).fill(true)
+        },
+        {
+          name: 'Side Court',
+          status: 'open',
+          openingHoursGrid: Array(30).fill(true)
+        },
+        {
+          name: 'Training Room',
+          status: 'open',
+          openingHoursGrid: Array(30).fill(true)
+        }
+      ],
+    openingHoursGrid: {
+      monday: Array(30).fill(true),
+      tuesday: Array(30).fill(true),
+      wednesday: Array(30).fill(true),
+      thursday: Array(30).fill(true),
+      friday: Array(30).fill(true),
+      saturday: Array(30).fill(true),
+      sunday: Array(30).fill(true)
+    }
   },
   {
     name: 'Fitness Studio A',
@@ -86,22 +98,29 @@ const sampleFacilities = [
       type: 'Point',
       coordinates: [9.1835, 48.7762] // Slightly north of main hall
     },
-    capacity: 30,
-    size: '15x10m',
-    status: 'available',
+    status: 'open',
     equipment: ['Mirrors', 'Sound system', 'Cardio machines', 'Weight equipment'],
-    color: '#f59e0b',
-    description: 'Modern fitness studio with cardio and strength training equipment',
-    openingHours: {
-      monday: { open: '06:00', close: '23:00' },
-      tuesday: { open: '06:00', close: '23:00' },
-      wednesday: { open: '06:00', close: '23:00' },
-      thursday: { open: '06:00', close: '23:00' },
-      friday: { open: '06:00', close: '23:00' },
-      saturday: { open: '08:00', close: '22:00' },
-      sunday: { open: '08:00', close: '22:00' }
-    },
-    hourlyRate: 30
+    halls: [
+      {
+        name: 'Cardio Zone',
+        status: 'open',
+        openingHoursGrid: Array(30).fill(true)
+      },
+      {
+        name: 'Weight Room',
+        status: 'open',
+        openingHoursGrid: Array(30).fill(true)
+      }
+    ],
+    openingHoursGrid: {
+      monday: Array(30).fill(true),
+      tuesday: Array(30).fill(true),
+      wednesday: Array(30).fill(true),
+      thursday: Array(30).fill(true),
+      friday: Array(30).fill(true),
+      saturday: Array(30).fill(true),
+      sunday: Array(30).fill(true)
+    }
   },
   {
     name: 'Fitness Studio B',
@@ -111,7 +130,7 @@ const sampleFacilities = [
     },
     capacity: 25,
     size: '12x8m',
-    status: 'available',
+    status: 'open',
     equipment: ['Yoga mats', 'Dumbbells', 'Resistance bands', 'Meditation area'],
     color: '#10b981',
     description: 'Specialized studio for yoga, pilates, and functional training',
@@ -134,7 +153,7 @@ const sampleFacilities = [
     },
     capacity: 100,
     size: '20x15m',
-    status: 'available',
+    status: 'open',
     equipment: ['Projector', 'Chairs', 'Tables', 'Sound system'],
     color: '#8b981',
     description: 'Versatile space for meetings, presentations, and small events',
@@ -157,7 +176,7 @@ const sampleFacilities = [
     },
     capacity: 200,
     size: '30x20m',
-    status: 'available',
+    status: 'open',
     equipment: ['Gymnastics equipment', 'Mats', 'Balance beams', 'Rings'],
     color: '#10b981',
     description: 'Specialized facility for gymnastics training and competitions',
@@ -180,7 +199,7 @@ const sampleFacilities = [
     },
     capacity: 20,
     size: '8x6m',
-    status: 'available',
+    status: 'open',
     equipment: ['Conference table', 'TV', 'Whiteboard', 'Video conferencing'],
     color: '#f59e0b',
     description: 'Small meeting room for team discussions and presentations',
@@ -235,12 +254,17 @@ const seedDatabase = async () => {
     const createdFacilities = await Facility.insertMany(sampleFacilities);
     console.log(`Created ${createdFacilities.length} facilities`);
     
-    // Create some sample bookings
+    // Create some sample bookings for the current week
+    const today = new Date();
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - today.getDay() + 1); // Monday of current week
+    
     const sampleBookings = [
       {
         facility: createdFacilities[0]._id, // Main Sports Hall
         facilityName: createdFacilities[0].name,
-        date: new Date('2025-01-20'),
+        hall: 'Main Court',
+        date: new Date(monday.getTime() + 1 * 24 * 60 * 60 * 1000), // Tuesday
         startTime: '14:00',
         endTime: '16:00',
         user: createdUsers[2]._id, // John Doe
@@ -253,7 +277,8 @@ const seedDatabase = async () => {
       {
         facility: createdFacilities[1]._id, // Fitness Studio A
         facilityName: createdFacilities[1].name,
-        date: new Date('2025-01-20'),
+        hall: 'Cardio Zone',
+        date: new Date(monday.getTime() + 0 * 24 * 60 * 60 * 1000), // Monday
         startTime: '10:00',
         endTime: '11:30',
         user: createdUsers[1]._id, // Sarah Smith
@@ -266,7 +291,7 @@ const seedDatabase = async () => {
       {
         facility: createdFacilities[3]._id, // Multi-Purpose Room
         facilityName: createdFacilities[3].name,
-        date: new Date('2025-01-21'),
+        date: new Date(monday.getTime() + 2 * 24 * 60 * 60 * 1000), // Wednesday
         startTime: '18:00',
         endTime: '20:00',
         user: createdUsers[4]._id, // Mike Johnson
@@ -279,7 +304,7 @@ const seedDatabase = async () => {
       {
         facility: createdFacilities[4]._id, // Gymnastics Hall
         facilityName: createdFacilities[4].name,
-        date: new Date('2025-01-22'),
+        date: new Date(monday.getTime() + 3 * 24 * 60 * 60 * 1000), // Thursday
         startTime: '15:00',
         endTime: '17:00',
         user: createdUsers[3]._id, // Emma Wilson
@@ -292,7 +317,7 @@ const seedDatabase = async () => {
       {
         facility: createdFacilities[5]._id, // Meeting Room
         facilityName: createdFacilities[5].name,
-        date: new Date('2025-01-20'),
+        date: new Date(monday.getTime() + 0 * 24 * 60 * 60 * 1000), // Monday
         startTime: '09:00',
         endTime: '10:00',
         user: createdUsers[0]._id, // Max Admin

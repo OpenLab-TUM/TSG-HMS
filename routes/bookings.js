@@ -8,14 +8,26 @@ const { body, validationResult } = require('express-validator');
 const { randomUUID } = require('crypto');
 
 // Helper function to validate time slots against facility opening hours
-function validateTimeSlotsAgainstOpeningHours(facility, date, startTime, endTime) {
+function validateTimeSlotsAgainstOpeningHours(facility, date, startTime, endTime, hallName = null) {
   // Get the day of the week (0 = Sunday, 1 = Monday, etc.)
   const dayOfWeek = new Date(date).getDay();
   const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
   const dayKey = dayNames[dayOfWeek];
   
-  // Get the facility's opening hours grid for this day
-  const dayGrid = facility.openingHoursGrid?.[dayKey];
+  // Get the opening hours grid - either from specific hall or facility default
+  let dayGrid;
+  if (hallName && facility.halls) {
+    const hall = facility.halls.find(h => h.name === hallName);
+    if (hall && hall.openingHoursGrid) {
+      dayGrid = hall.openingHoursGrid[dayKey];
+    }
+  }
+  
+  // Fall back to facility default if hall doesn't have specific hours
+  if (!dayGrid) {
+    dayGrid = facility.openingHoursGrid?.[dayKey];
+  }
+  
   if (!dayGrid || !Array.isArray(dayGrid)) {
     return { valid: false, message: 'Facility has no opening hours configured for this day' };
   }
@@ -46,6 +58,55 @@ function validateTimeSlotsAgainstOpeningHours(facility, date, startTime, endTime
   }
   
   return { valid: true };
+}
+
+// Helper function to validate hall exists and is available
+function validateHallAvailability(facility, hallName) {
+  if (!facility.halls || facility.halls.length === 0) {
+    return { valid: false, message: 'Facility has no halls configured' };
+  }
+  
+  const hall = facility.halls.find(h => h.name === hallName);
+  if (!hall) {
+    return { valid: false, message: `Hall '${hallName}' not found in facility '${facility.name}'` };
+  }
+  
+  // If facility has only 1 hall, skip status check (single hall facilities are always bookable)
+  if (facility.halls.length === 1) {
+    // Single hall - skip status validation
+  } else {
+    // Check if hall is available for booking (open, available, or undefined status)
+    const hallStatus = (hall.status || '').toLowerCase();
+    if (hallStatus !== 'open' && hallStatus !== 'available' && hallStatus !== '') {
+      return { valid: false, message: `Hall '${hallName}' is ${hall.status} and cannot be booked` };
+    }
+  }
+  
+  return { valid: true, hall };
+}
+
+// Helper function to validate custom time format (15-minute intervals)
+function validateCustomTimeFormat(time) {
+  if (!time || typeof time !== 'string') return false;
+  
+  // Check if time matches HH:MM format
+  if (!/^([0-9]|0[0-9]|1[0-9]|2[0-3]):([0-9]|0[0-9]|1[0-9]|2[0-9]|3[0-9]|4[0-9]|5[0-9])$/.test(time)) {
+    return false;
+  }
+  
+  const [hours, minutes] = time.split(':').map(Number);
+  
+  // Check if minutes are in 15-minute intervals (0, 15, 30, 45)
+  if (minutes % 15 !== 0) {
+    return false;
+  }
+  
+  // Check if hours are within valid range (0-23)
+  if (hours < 0 || hours > 23) {
+    return false;
+  }
+  
+  return true;
 }
 
 const generateRecurrenceGroupId = () => {
@@ -148,6 +209,7 @@ async function ensureCanBook(req, res, next) {
 // POST create new booking
 router.post('/', [
   body('facility').notEmpty().withMessage('Facility is required'),
+  body('hall').notEmpty().withMessage('Hall is required'),
   body('date').isISO8601().withMessage('Valid date is required'),
   body('startTime').notEmpty().withMessage('Start time is required'),
   body('endTime').notEmpty().withMessage('End time is required'),
@@ -157,6 +219,13 @@ router.post('/', [
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({ errors: errors.array() });
+  }
+
+  // Validate custom time format (15-minute intervals)
+  if (!validateCustomTimeFormat(req.body.startTime) || !validateCustomTimeFormat(req.body.endTime)) {
+    return res.status(400).json({ 
+      message: 'Start and end times must be in HH:MM format with 15-minute intervals (e.g., 10:15, 17:30)' 
+    });
   }
 
   try {
@@ -178,15 +247,22 @@ router.post('/', [
       }
     }
 
-    // Validate time slots against facility opening hours
-    const validationResult = validateTimeSlotsAgainstOpeningHours(facility, req.body.date, req.body.startTime, req.body.endTime);
+    // Validate hall availability
+    const hallValidation = validateHallAvailability(facility, req.body.hall);
+    if (!hallValidation.valid) {
+      return res.status(400).json({ message: hallValidation.message });
+    }
+
+    // Validate time slots against facility opening hours (now with hall)
+    const validationResult = validateTimeSlotsAgainstOpeningHours(facility, req.body.date, req.body.startTime, req.body.endTime, req.body.hall);
     if (!validationResult.valid) {
       return res.status(400).json({ message: validationResult.message });
     }
 
-    // Check for booking conflicts
+    // Check for booking conflicts (now including hall)
     const conflictQuery = {
       facility: req.body.facility,
+      hall: req.body.hall,
       date: {
         $gte: new Date(new Date(req.body.date).setHours(0, 0, 0, 0)),
         $lt: new Date(new Date(req.body.date).setHours(23, 59, 59, 999))
@@ -357,6 +433,7 @@ router.put('/:id', [
 // PUT update booking details (time, date, purpose, etc.)
 router.put('/:id/details', [
   body('facility').optional().notEmpty().withMessage('Facility is required'),
+  body('hall').optional().notEmpty().withMessage('Hall is required'),
   body('date').optional().isISO8601().withMessage('Valid date is required'),
   body('startTime').optional().notEmpty().withMessage('Start time is required'),
   body('endTime').optional().notEmpty().withMessage('End time is required'),
@@ -384,15 +461,24 @@ router.put('/:id/details', [
       const startTime = req.body.startTime || booking.startTime;
       const endTime = req.body.endTime || booking.endTime;
 
+      // Validate custom time format (15-minute intervals)
+      if ((req.body.startTime && !validateCustomTimeFormat(req.body.startTime)) || 
+          (req.body.endTime && !validateCustomTimeFormat(req.body.endTime))) {
+        return res.status(400).json({ 
+          message: 'Start and end times must be in HH:MM format with 15-minute intervals (e.g., 10:15, 17:30)' 
+        });
+      }
+
       // Validate time slots against facility opening hours
       const validationResult = validateTimeSlotsAgainstOpeningHours(facility, date, startTime, endTime);
       if (!validationResult.valid) {
         return res.status(400).json({ message: validationResult.message });
       }
 
-      // Check for booking conflicts with the new time
+      // Check for booking conflicts with the new time (now including hall)
       const conflictQuery = {
         facility: booking.facility,
+        hall: req.body.hall || booking.hall,
         date: {
           $gte: new Date(new Date(date).setHours(0, 0, 0, 0)),
           $lt: new Date(new Date(date).setHours(23, 59, 59, 999))

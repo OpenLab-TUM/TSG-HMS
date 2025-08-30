@@ -165,7 +165,7 @@ const MapView = ({ facilities = [], bookings = [], onFacilityClick }) => {
             </select>
             
             <div className="text-xs text-gray-500">
-              {validFacilities.length} facility{validFacilities.length !== 1 ? 'ies' : ''} found
+              {validFacilities.length} facilit{validFacilities.length !== 1 ? 'ies' : 'y'} found
             </div>
           </div>
         </div>
@@ -242,7 +242,7 @@ const MapView = ({ facilities = [], bookings = [], onFacilityClick }) => {
                           </div>
                         )}
                         <div className="text-xs text-gray-500">
-                          Coordinates: {lng.toFixed(4)}, {lat.toFixed(4)}
+                          Coordinates: {lat.toFixed(6)}, {lng.toFixed(6)}
                         </div>
                       </div>
                       <button

@@ -28,17 +28,20 @@ const AppContent = () => {
   const [selectedWeek, setSelectedWeek] = useState(new Date());
   const [reportsWeek, setReportsWeek] = useState(new Date());
   const [facilityFilter, setFacilityFilter] = useState('all');
+  const [hallFilter, setHallFilter] = useState('all');
   const [reportFacilityId, setReportFacilityId] = useState(null);
   const reportPreviewRef = useRef(null);
   const reportHiddenRef = useRef(null);
   const [utilizationChartType, setUtilizationChartType] = useState('bar'); // 'bar' | 'line'
   const [bookingForm, setBookingForm] = useState({
     facility: '',
+    hall: '',
     date: new Date().toISOString().split('T')[0], // Default to today
     startTime: '',
     endTime: '',
     purpose: '',
-    recurring: 'none'
+    recurring: 'none',
+    customTimeInput: false // New field to toggle between grid and custom input
   });
   const purposeInputRef = useRef(null);
   const [searchTerm, setSearchTerm] = useState('');
@@ -70,8 +73,17 @@ const AppContent = () => {
   const [facilityForm, setFacilityForm] = useState({
     name: '',
     status: 'open',
+    locationLongitude: '',
+    locationLatitude: '',
     equipmentList: [''],
-    openingHoursGrid: generateDefaultOpeningGrid()
+    openingHoursGrid: generateDefaultOpeningGrid(),
+          halls: [
+        {
+          name: 'Main Hall',
+          status: 'open',
+          openingHoursGrid: generateDefaultOpeningGrid()
+        }
+      ]
   });
 
   const timeSlots = useMemo(() => [
@@ -93,22 +105,37 @@ const AppContent = () => {
     };
   }
 
+
+
   // Fetch data from API AFTER user is authenticated
   useEffect(() => {
     const fetchData = async () => {
       try {
         if (!user) return; // skip until logged in
         setDataLoading(true);
-              setDataError(null);
-      const [facilitiesData, bookingsData, usersData] = await Promise.all([
-        api.getFacilities(),
-        api.getBookings(),
-        api.getUsers()
-      ]);
-      setFacilities(facilitiesData);
-      setBookings(bookingsData);
-      setUsers(usersData);
-    } catch (err) {
+        setDataError(null);
+        const [facilitiesData, bookingsData, usersData] = await Promise.all([
+          api.getFacilities(),
+          api.getBookings(),
+          api.getUsers()
+        ]);
+        
+        // Ensure all facilities have halls property
+        const normalizedFacilities = (facilitiesData || []).map(facility => ({
+          ...facility,
+          halls: Array.isArray(facility?.halls) && facility.halls.length > 0 
+            ? facility.halls 
+            : [{
+                name: 'Main Hall',
+                status: 'open',
+                openingHoursGrid: facility?.openingHoursGrid || generateDefaultOpeningGrid()
+              }]
+        }));
+        
+        setFacilities(normalizedFacilities);
+        setBookings(bookingsData || []);
+        setUsers(usersData || []);
+      } catch (err) {
         console.error('Error fetching data:', err);
         setDataError('Failed to load data. Please check if the backend is running.');
       } finally {
@@ -128,6 +155,8 @@ const AppContent = () => {
     }
   }, [showBookingModal]);
 
+
+
   // Refresh data function (requires auth)
   const refreshData = async () => {
     if (!user) return;
@@ -138,9 +167,22 @@ const AppContent = () => {
         api.getBookings(),
         api.getUsers()
       ]);
-      setFacilities(facilitiesData);
-      setBookings(bookingsData);
-      setUsers(usersData);
+      
+      // Ensure all facilities have halls property
+      const normalizedFacilities = (facilitiesData || []).map(facility => ({
+        ...facility,
+        halls: Array.isArray(facility?.halls) && facility.halls.length > 0 
+          ? facility.halls 
+          : [{
+              name: 'Main Hall',
+              status: 'open',
+              openingHoursGrid: facility?.openingHoursGrid || generateDefaultOpeningGrid()
+            }]
+      }));
+      
+      setFacilities(normalizedFacilities);
+      setBookings(bookingsData || []);
+      setUsers(usersData || []);
     } catch (err) {
       console.error('Error refreshing data:', err);
     } finally {
@@ -153,11 +195,13 @@ const AppContent = () => {
     setEditingBooking(booking);
     setBookingForm({
       facility: booking.facilityName,
+      hall: booking.hall || '',
       date: new Date(booking.date).toISOString().split('T')[0],
       startTime: booking.startTime,
       endTime: booking.endTime,
       purpose: booking.purpose,
-      recurring: booking.recurring
+      recurring: booking.recurring,
+      customTimeInput: false
     });
     setShowBookingModal(true);
   };
@@ -180,11 +224,20 @@ const AppContent = () => {
         showError('This facility is closed and cannot be booked.');
         return;
       }
+      
+      // Ensure facility has halls property
+      if (!facility?.halls) {
+        console.log('Facility missing halls property, initializing...');
+        if (facility) {
+          facility.halls = [];
+        }
+      }
 
       // Update booking data
       const updateData = {
         facility: facility._id,
         facilityName: facility.name,
+        hall: bookingForm.hall,
         date: new Date(bookingForm.date + 'T00:00:00.000Z').toISOString(),
         startTime: bookingForm.startTime,
         endTime: bookingForm.endTime,
@@ -203,11 +256,13 @@ const AppContent = () => {
       setEditingBooking(null);
       setBookingForm({
         facility: '',
+        hall: '',
         date: '',
         startTime: '',
         endTime: '',
         purpose: '',
-        recurring: 'none'
+        recurring: 'none',
+        customTimeInput: false
       });
       
       console.log('Booking updated successfully!');
@@ -248,9 +303,29 @@ const AppContent = () => {
   // Handle form field changes - use callback to prevent unnecessary re-renders
   const handleFormChange = (field, value) => {
     setBookingForm(prev => {
-      // If changing facility, clear time selections since availability may differ
+      // If changing facility, clear hall and time selections since availability may differ
       if (field === 'facility') {
-        return {...prev, [field]: value, startTime: '', endTime: ''};
+        const newState = {...prev, [field]: value, hall: '', startTime: '', endTime: '', customTimeInput: false};
+        
+        // Auto-select hall if facility has only one open hall
+        if (value) {
+          const selectedFacility = (facilities || []).find(f => f?.name === value);
+          
+          if (selectedFacility && selectedFacility?.halls) {
+            // More robust hall status checking - consider 'open', 'available', or undefined as open
+            const openHalls = selectedFacility.halls.filter(hall => {
+              const status = (hall?.status || '').toLowerCase();
+              return status === 'open' || status === 'available' || !status;
+            });
+            
+            if (openHalls.length === 1) {
+              console.log('Auto-selecting hall in handleFormChange:', openHalls[0]?.name);
+              newState.hall = openHalls[0]?.name;
+            }
+          }
+        }
+        
+        return newState;
       }
       return {...prev, [field]: value};
     });
@@ -264,6 +339,7 @@ const AppContent = () => {
         showError('Cannot create a booking in the past.');
         return;
       }
+      
       // Find the facility ID from the name
       const facility = facilities.find(f => f.name === bookingForm.facility);
       if (!facility) {
@@ -273,11 +349,80 @@ const AppContent = () => {
         showError('This facility is closed and cannot be booked.');
         return;
       }
+      
+      // Ensure facility has halls property
+      if (!facility?.halls) {
+        console.log('Facility missing halls property, initializing...');
+        if (facility) {
+          facility.halls = [];
+        }
+      }
+      
+      // Ensure hall is selected (auto-select if single hall)
+      let finalHall = bookingForm.hall;
+      
+      // Debug: Log facility structure
+      console.log('Facility object:', facility);
+      console.log('Facility halls:', facility?.halls);
+      console.log('Facility halls length:', facility?.halls?.length);
+      console.log('Facility halls type:', typeof facility?.halls);
+      console.log('Facility keys:', Object.keys(facility || {}));
+      console.log('Facility halls property exists:', facility ? 'halls' in facility : false);
+      console.log('Facility halls is array:', Array.isArray(facility?.halls));
+      
+      if (!finalHall) {
+        // Safety check: ensure facility has halls
+        if (!facility?.halls || facility.halls.length === 0) {
+          console.error('Facility halls issue:', {
+            halls: facility?.halls,
+            hallsType: typeof facility?.halls,
+            isArray: Array.isArray(facility?.halls),
+            length: facility?.halls?.length
+          });
+          
+          // Fallback: create a default hall if none exists
+          console.log('Creating fallback hall for facility:', facility?.name);
+          if (facility) {
+            facility.halls = [{
+              name: 'Main Hall',
+              status: 'open',
+              openingHoursGrid: facility?.openingHoursGrid || Array(30).fill(true)
+            }];
+          }
+          console.log('Fallback hall created:', facility?.halls);
+        }
+        
+        // If facility has only 1 hall, skip status check and auto-select it
+        if (facility.halls.length === 1) {
+          console.log('Single hall facility detected, auto-selecting:', facility.halls[0].name);
+          finalHall = facility.halls[0].name;
+        } else {
+          console.log('Multi-hall facility detected, checking statuses');
+          // For multi-hall facilities, check hall status
+          const openHalls = facility.halls.filter(hall => {
+            const status = (hall.status || '').toLowerCase();
+            const isOpen = status === 'open' || status === 'available' || !status;
+            console.log(`Hall ${hall.name} status: "${hall.status}" -> isOpen: ${isOpen}`);
+            return isOpen;
+          });
+          
+          console.log('Open halls found:', openHalls.length, openHalls.map(h => h.name));
+          
+          if (openHalls.length === 1) {
+            finalHall = openHalls[0].name;
+          } else if (openHalls.length === 0) {
+            throw new Error('No open halls available in this facility');
+          } else {
+            throw new Error('Please select a hall');
+          }
+        }
+      }
 
       // Create booking data for API
       const bookingData = {
         facility: facility._id,
         facilityName: facility.name,
+        hall: finalHall,
         date: new Date(bookingForm.date + 'T00:00:00.000Z').toISOString(),
         startTime: bookingForm.startTime,
         endTime: bookingForm.endTime,
@@ -291,6 +436,18 @@ const AppContent = () => {
 
       // Debug: Log the booking data being sent
       console.log('Sending booking data:', bookingData);
+      console.log('Original form data:', bookingForm);
+      console.log('Final hall selected:', finalHall);
+      console.log('Facility found:', facility);
+      console.log('Facility hall count:', facility.halls?.length);
+      if (facility.halls?.length === 1) {
+        console.log('Single hall facility - status check skipped');
+      } else {
+        console.log('Multi-hall facility - open halls:', facility.halls?.filter(hall => {
+          const status = (hall.status || '').toLowerCase();
+          return status === 'open' || status === 'available' || !status;
+        }));
+      }
       
       // Submit booking to API
       await api.createBooking(bookingData);
@@ -302,11 +459,13 @@ const AppContent = () => {
       setShowBookingModal(false);
       setBookingForm({
         facility: '',
+        hall: '',
         date: new Date().toISOString().split('T')[0], // Default to today
         startTime: '',
         endTime: '',
         purpose: '',
-        recurring: 'none'
+        recurring: 'none',
+        customTimeInput: false
       });
       
       // Show success message with recurring info
@@ -346,8 +505,17 @@ const AppContent = () => {
     setFacilityForm({
       name: '',
       status: 'open',
+      locationLongitude: '',
+      locationLatitude: '',
       equipmentList: [''],
-      openingHoursGrid: generateDefaultOpeningGrid()
+      openingHoursGrid: generateDefaultOpeningGrid(),
+      halls: [
+        {
+          name: 'Main Hall',
+          status: 'open',
+          openingHoursGrid: generateDefaultOpeningGrid()
+        }
+      ]
     });
     setShowFacilityModal(true);
   };
@@ -358,8 +526,17 @@ const AppContent = () => {
       name: facility.name || '',
       // Normalize legacy statuses coming from older seed data
       status: (facility.status === 'available' ? 'open' : facility.status) || 'open',
+      locationLongitude: (facility.location && Array.isArray(facility.location.coordinates)) ? String(facility.location.coordinates[0]) : '',
+      locationLatitude: (facility.location && Array.isArray(facility.location.coordinates)) ? String(facility.location.coordinates[1]) : '',
       equipmentList: Array.isArray(facility.equipment) && facility.equipment.length > 0 ? facility.equipment : [''],
-      openingHoursGrid: facility.openingHoursGrid || generateDefaultOpeningGrid()
+      openingHoursGrid: facility.openingHoursGrid || generateDefaultOpeningGrid(),
+      halls: Array.isArray(facility.halls) && facility.halls.length > 0 ? facility.halls : [
+        {
+          name: 'Main Hall',
+          status: 'open',
+          openingHoursGrid: facility.openingHoursGrid || generateDefaultOpeningGrid()
+        }
+      ]
     });
     setShowFacilityModal(true);
   };
@@ -375,8 +552,23 @@ const AppContent = () => {
         name: facilityForm.name.trim(),
         status: facilityForm.status,
         equipment: facilityForm.equipmentList.map(e => (e || '').trim()).filter(Boolean),
-        openingHoursGrid: facilityForm.openingHoursGrid
+        openingHoursGrid: facilityForm.openingHoursGrid,
+        halls: facilityForm.halls.map(hall => ({
+          name: hall.name.trim(),
+          status: hall.status,
+          openingHoursGrid: hall.openingHoursGrid || generateDefaultOpeningGrid()
+        }))
       };
+
+      let lng = facilityForm.locationLongitude !== '' ? Number(facilityForm.locationLongitude) : undefined;
+      let lat = facilityForm.locationLatitude !== '' ? Number(facilityForm.locationLatitude) : undefined;
+      // Auto-swap if values look reversed (common user input issue)
+      if (typeof lng === 'number' && typeof lat === 'number' && !isNaN(lng) && !isNaN(lat)) {
+        if (Math.abs(lng) <= 90 && Math.abs(lat) > 90) {
+          const tmp = lng; lng = lat; lat = tmp;
+        }
+        payload.location = { type: 'Point', coordinates: [lng, lat] };
+      }
 
       if (editingFacility) {
         await api.updateFacility(editingFacility._id, payload);
@@ -505,58 +697,199 @@ const AppContent = () => {
     const dayNames = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
     const startOfDayMin = 6 * 60;
     const endOfDayMin = 22 * 60;
-    const hourHeightPx = 36;
+    const hourHeightPx = 48; // Increased height for better quality
     const totalHours = (endOfDayMin - startOfDayMin) / 60;
     const hours = Array.from({ length: totalHours + 1 }, (_, i) => 6 + i);
 
+    // Helper function to parse time to minutes
+    const parseTimeToMinutes = (t) => {
+      const [hh, mm] = (t || '00:00').split(':').map(Number);
+      return (hh || 0) * 60 + (mm || 0);
+    };
+
+    // Helper function to compute block style
+    const computeBlockStyle = (startTime, endTime) => {
+      const s = Math.max(parseTimeToMinutes(startTime), startOfDayMin);
+      const e = Math.min(parseTimeToMinutes(endTime), endOfDayMin);
+      const top = ((s - startOfDayMin) / 60) * hourHeightPx;
+      const height = Math.max(24, ((e - s) / 60) * hourHeightPx - 2);
+      return { top: `${top}px`, height: `${height}px` };
+    };
+
+    // Helper function to group overlapping bookings
+    const groupOverlappingBookings = (dayBookings) => {
+      if (!dayBookings || dayBookings.length === 0) return [];
+      
+      const sortedBookings = [...dayBookings].sort((a, b) => {
+        const aStart = parseTimeToMinutes(a?.startTime || '00:00');
+        const bStart = parseTimeToMinutes(b?.startTime || '00:00');
+        return aStart - bStart;
+      });
+      
+      const groups = [];
+      const processed = new Set();
+      
+      sortedBookings.forEach(booking => {
+        if (processed.has(booking._id)) return;
+        
+        const overlapping = [booking];
+        processed.add(booking._id);
+        
+        // Find all overlapping bookings
+        sortedBookings.forEach(other => {
+          if (processed.has(other._id)) return;
+          
+          const bookingStart = parseTimeToMinutes(booking?.startTime || '00:00');
+          const bookingEnd = parseTimeToMinutes(booking?.endTime || '00:00');
+          const otherStart = parseTimeToMinutes(other?.startTime || '00:00');
+          const otherEnd = parseTimeToMinutes(other?.endTime || '00:00');
+          
+          // Check if bookings overlap
+          if (bookingStart < otherEnd && bookingEnd > otherStart) {
+            overlapping.push(other);
+            processed.add(other._id);
+          }
+        });
+        
+        // Sort overlapping bookings by start time
+        overlapping.sort((a, b) => {
+          const aStart = parseTimeToMinutes(a?.startTime || '00:00');
+          const bStart = parseTimeToMinutes(b?.startTime || '00:00');
+          return aStart - bStart;
+        });
+        
+        groups.push(overlapping);
+      });
+      
+      return groups;
+    };
+
     const node = (
-      <div style={{ padding: 24, width: 1100, background: '#fff', fontFamily: 'Inter, system-ui, sans-serif' }}>
-        <div style={{ fontWeight: 600, fontSize: 18, marginBottom: 8 }}>{facility.name} Timetable</div>
-        <div style={{ color: '#6b7280', fontSize: 12, marginBottom: 12 }}>{getWeekRange(weekDate)}</div>
-        <div style={{ border: '1px solid #e5e7eb', borderRadius: 8, overflow: 'hidden' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '90px repeat(7, 1fr)', background: '#f9fafb', borderBottom: '1px solid #e5e7eb' }}>
-            <div style={{ padding: 8, fontWeight: 500 }}>Time</div>
+      <div style={{ padding: 32, width: 1600, background: '#fff', fontFamily: 'Inter, system-ui, sans-serif' }}>
+        <div style={{ fontWeight: 700, fontSize: 24, marginBottom: 12, color: '#1f2937' }}>{facility?.name} Timetable</div>
+        <div style={{ color: '#6b7280', fontSize: 14, marginBottom: 20 }}>{getWeekRange(weekDate)}</div>
+        <div style={{ border: '2px solid #e5e7eb', borderRadius: 12, overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '120px repeat(7, minmax(160px, 1fr))', background: '#f8fafc', borderBottom: '2px solid #e5e7eb' }}>
+            <div style={{ padding: 12, fontWeight: 600, fontSize: 14, color: '#374151' }}>Time</div>
             {dayNames.map((d, i) => (
-              <div key={d} style={{ padding: 8, textAlign: 'center', fontWeight: 500 }}>
+              <div key={d} style={{ padding: 12, textAlign: 'center', fontWeight: 600, fontSize: 14, color: '#374151' }}>
                 <div>{d}</div>
-                <div style={{ fontSize: 12, color: '#6b7280' }}>{weekDates[i].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+                <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>{weekDates[i].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
               </div>
             ))}
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '90px repeat(7, 1fr)' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '120px repeat(7, minmax(160px, 1fr))' }}>
             {/* Time axis */}
-            <div style={{ position: 'relative', height: totalHours * hourHeightPx, background: '#fafafa', borderRight: '1px solid #e5e7eb' }}>
+            <div style={{ position: 'relative', height: totalHours * hourHeightPx, background: '#f9fafb', borderRight: '2px solid #e5e7eb' }}>
               {hours.map((h, idx) => (
-                <div key={h} style={{ position: 'absolute', top: idx * hourHeightPx - 6, left: 0, right: 0 }}>
-                  <div style={{ textAlign: 'right', paddingRight: 8, fontSize: 10, color: '#6b7280' }}>{String(h).padStart(2, '0')}:00</div>
-                  <div style={{ borderTop: '1px solid #e5e7eb', marginTop: 6 }}></div>
+                <div key={h} style={{ position: 'absolute', top: idx * hourHeightPx - 8, left: 0, right: 0 }}>
+                  <div style={{ textAlign: 'right', paddingRight: 12, fontSize: 12, color: '#6b7280', fontWeight: 500 }}>{String(h).padStart(2, '0')}:00</div>
+                  <div style={{ borderTop: '1px solid #e5e7eb', marginTop: 8 }}></div>
                 </div>
               ))}
             </div>
             {/* Day columns */}
             {weekDates.map((date, i) => {
-              const dayBookings = bookings
-                .filter(b => b.facilityName === facility.name && new Date(b.date).toISOString().split('T')[0] === date.toISOString().split('T')[0])
-                .sort((a,b) => a.startTime.localeCompare(b.startTime));
-              const parse = (t) => { const [hh, mm] = (t||'00:00').split(':').map(Number); return (hh*60 + mm); };
-              const blockStyle = (start, end) => {
-                const s = Math.max(parse(start), startOfDayMin);
-                const e = Math.min(parse(end), endOfDayMin);
-                const top = ((s - startOfDayMin) / 60) * hourHeightPx;
-                const height = Math.max(18, ((e - s) / 60) * hourHeightPx - 2);
-                return { position: 'absolute', left: 6, right: 6, top, height, borderRadius: 6, padding: '4px 6px', color: '#fff', fontSize: 10 };
-              };
+              const dayBookings = (bookings || [])
+                .filter(b => b?.facilityName === facility?.name && new Date(b?.date).toISOString().split('T')[0] === date.toISOString().split('T')[0])
+                .sort((a,b) => (a?.startTime || '').localeCompare(b?.startTime || ''));
+              
+              const bookingGroups = groupOverlappingBookings(dayBookings);
               return (
                 <div key={i} style={{ position: 'relative', borderRight: '1px solid #f3f4f6', height: totalHours * hourHeightPx }}>
                   {hours.map((h, idx) => (
                     <div key={h} style={{ position: 'absolute', top: idx * hourHeightPx, left: 0, right: 0, borderTop: '1px solid #f3f4f6' }}></div>
                   ))}
-                  {dayBookings.map((b, idx2) => (
-                    <div key={idx2} style={{ ...blockStyle(b.startTime, b.endTime), background: b.status==='confirmed' ? '#2563eb' : '#f59e0b', boxShadow: '0 1px 2px rgba(0,0,0,0.08)' }}>
-                      <div style={{ opacity: 0.9 }}>{b.startTime}-{b.endTime}</div>
-                      <div style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{b.purpose || b.userName}</div>
-                    </div>
-                  ))}
+                  {bookingGroups.map((group, groupIndex) => {
+                    if (group.length === 1) {
+                      // Single booking - render normally
+                      const b = group[0];
+                      const style = computeBlockStyle(b?.startTime, b?.endTime);
+                      const isConfirmed = b?.status === 'confirmed';
+                      return (
+                        <div 
+                          key={b?._id} 
+                          style={{ 
+                            position: 'absolute', 
+                            left: 8, 
+                            right: 8, 
+                            ...style, 
+                            background: isConfirmed ? '#2563eb' : '#f59e0b', 
+                            borderRadius: 8, 
+                            padding: '8px 10px', 
+                            color: '#fff', 
+                            fontSize: 11,
+                            boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                            border: '1px solid rgba(255,255,255,0.2)',
+                            minWidth: '120px' // Ensure minimum width for text readability
+                          }}
+                        >
+                          <div style={{ opacity: 0.9, marginBottom: 4, fontSize: 10, fontWeight: 500 }}>{b?.startTime}-{b?.endTime}</div>
+                          <div style={{ 
+                            fontWeight: 600, 
+                            wordBreak: 'break-word', 
+                            lineHeight: '1.5',
+                            marginBottom: 2,
+                            maxHeight: '5em', // Allow 2 lines of text with increased line height
+                            overflowY: 'auto',
+                            hyphens: 'auto' // Enable automatic hyphenation
+                          }}>
+                            {b?.purpose || b?.userName || 'Unnamed Event'}
+                          </div>
+                          {b?.hall && (
+                            <div style={{ fontSize: 9, opacity: 0.8, fontStyle: 'italic', wordBreak: 'break-word' }}>{b.hall}</div>
+                          )}
+                        </div>
+                      );
+                    } else {
+                      // Multiple overlapping bookings - render side by side
+                      return group.map((b, bookingIndex) => {
+                        const style = computeBlockStyle(b?.startTime, b?.endTime);
+                        const isConfirmed = b?.status === 'confirmed';
+                        const totalBookings = group.length;
+                        const bookingWidth = Math.max(90 / totalBookings, 15); // Ensure minimum 15% width
+                        const leftOffset = (bookingIndex * (90 / totalBookings)) + 5; // 5% margin on left, 5% on right
+                        
+                        return (
+                          <div 
+                            key={b?._id} 
+                            style={{ 
+                              position: 'absolute', 
+                              left: `${leftOffset}%`,
+                              right: `${100 - leftOffset - bookingWidth}%`,
+                              ...style, 
+                              background: isConfirmed ? '#2563eb' : '#f59e0b', 
+                              borderRadius: 8, 
+                              padding: '6px 8px', 
+                              color: '#fff', 
+                              fontSize: 10,
+                              boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+                              border: '1px solid rgba(255,255,255,0.2)',
+                              minWidth: '80px', // Ensure minimum width even for overlapping bookings
+                            }}
+                          >
+                            <div style={{ opacity: 0.9, marginBottom: 2, fontSize: 9, fontWeight: 500 }}>{b?.startTime}-{b?.endTime}</div>
+                            <div style={{ 
+                              fontWeight: 600, 
+                              wordBreak: 'break-word', 
+                              lineHeight: '1.5',
+                              marginBottom: 2,
+                              maxHeight: '5em', // Allow 2 lines of text with increased line height
+                              overflowY: 'auto',
+                              hyphens: 'auto', // Enable automatic hyphenation
+                              textOverflow: 'ellipsis',
+                              padding: '2.5px 0',      // prevents top/bottom clipping
+                            }}>
+                              {b?.purpose || b?.userName || 'Unnamed Event'}
+                            </div>
+                            {b?.hall && (
+                              <div style={{ fontSize: 8, opacity: 0.8, fontStyle: 'italic', wordBreak: 'break-word' }}>{b.hall}</div>
+                            )}
+                          </div>
+                        );
+                      });
+                    }
+                  })}
                 </div>
               );
             })}
@@ -577,10 +910,18 @@ const AppContent = () => {
     reportHiddenRef.current.innerHTML = '';
     reportHiddenRef.current.appendChild(container);
     const root = renderTimetableDOM(facility, reportsWeek, container);
-    await new Promise(r => setTimeout(r, 50));
-    const canvas = await html2canvas(container, { scale: 2, backgroundColor: '#ffffff' });
+    await new Promise(r => setTimeout(r, 100)); // Increased wait time for better rendering
+    const canvas = await html2canvas(container, { 
+              scale: 3, // Increased scale for better quality
+        backgroundColor: '#ffffff',
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        width: 1600,
+        height: container.scrollHeight
+    });
     root.unmount?.();
-    const imgData = canvas.toDataURL('image/png');
+    const imgData = canvas.toDataURL('image/png', 1.0); // Maximum quality
     const doc = new jsPDF({ unit: 'pt', format: 'a4' });
     // Fit image into A4 keeping aspect
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -588,23 +929,31 @@ const AppContent = () => {
     const imgWidth = pageWidth - 40;
     const imgHeight = (canvas.height * imgWidth) / canvas.width;
     doc.addImage(imgData, 'PNG', 20, 20, imgWidth, Math.min(imgHeight, pageHeight - 40));
-    doc.save(`${facility.name.replace(/\s+/g,'_')}_${getWeekRange(reportsWeek).replace(/\s+/g,'_')}.pdf`);
+    doc.save(`${facility?.name?.replace(/\s+/g,'_') || 'Facility'}_${getWeekRange(reportsWeek).replace(/\s+/g,'_')}.pdf`);
   };
 
   const exportAllFacilitiesAsPdf = async () => {
     if (!reportHiddenRef.current) return;
     const doc = new jsPDF({ unit: 'pt', format: 'a4' });
-    for (let i = 0; i < facilities.length; i++) {
+    for (let i = 0; i < (facilities || []).length; i++) {
       const f = facilities[i];
       if (i > 0) doc.addPage();
       const container = document.createElement('div');
       reportHiddenRef.current.innerHTML = '';
       reportHiddenRef.current.appendChild(container);
       const root = renderTimetableDOM(f, reportsWeek, container);
-      await new Promise(r => setTimeout(r, 50));
-      const canvas = await html2canvas(container, { scale: 2, backgroundColor: '#ffffff' });
+      await new Promise(r => setTimeout(r, 100)); // Increased wait time for better rendering
+      const canvas = await html2canvas(container, { 
+        scale: 3, // Increased scale for better quality
+        backgroundColor: '#ffffff',
+        useCORS: true,
+        allowTaint: true,
+        logging: false,
+        width: 1600,
+        height: container.scrollHeight
+      });
       root.unmount?.();
-      const imgData = canvas.toDataURL('image/png');
+      const imgData = canvas.toDataURL('image/png', 1.0); // Maximum quality
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
       const imgWidth = pageWidth - 40;
@@ -807,7 +1156,7 @@ const AppContent = () => {
   // Unique equipment list for filters
   const uniqueEquipment = useMemo(() => {
     const all = new Set();
-    (facilities || []).forEach(f => (f.equipment || []).forEach(e => all.add(e)));
+    (facilities || []).forEach(f => (f?.equipment || []).forEach(e => all.add(e)));
     return Array.from(all).sort((a,b) => a.localeCompare(b));
   }, [facilities]);
 
@@ -815,9 +1164,9 @@ const AppContent = () => {
   const filteredFacilitiesList = useMemo(() => {
     const search = facilitySearchTerm.toLowerCase();
     return (facilities || []).filter(f => {
-      const matchesSearch = !search || f.name.toLowerCase().includes(search);
-      const matchesStatus = facilityStatusFilter === 'all' || (f.status || '').toLowerCase() === facilityStatusFilter;
-      const equipment = f.equipment || [];
+      const matchesSearch = !search || f?.name?.toLowerCase().includes(search);
+      const matchesStatus = facilityStatusFilter === 'all' || (f?.status || '').toLowerCase() === facilityStatusFilter;
+      const equipment = f?.equipment || [];
       const matchesEquipment = equipmentSelected.length === 0 || equipmentSelected.every(eq => equipment.includes(eq));
       return matchesSearch && matchesStatus && matchesEquipment;
     });
@@ -890,7 +1239,7 @@ const AppContent = () => {
   };
 
   // Helper function to check if a timeslot is booked
-  const isTimeslotBooked = (facility, dayKey, slotIdx) => {
+  const isTimeslotBooked = (facility, dayKey, slotIdx, hallName = null) => {
     if (!facility || !bookings || bookings.length === 0) return false;
     
     // Convert slot index to time string (e.g., slotIdx 0 = "07:00", slotIdx 1 = "07:30")
@@ -901,7 +1250,7 @@ const AppContent = () => {
     const dayNames = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
     const dayIndex = dayNames.indexOf(dayKey);
     
-    // Get today's date and calculate the target date
+    // Get today's date and calculate the target date for this week
     const today = new Date();
     const targetDate = new Date(today);
     targetDate.setDate(today.getDate() + (dayIndex - today.getDay() + 7) % 7);
@@ -910,7 +1259,12 @@ const AppContent = () => {
     // Check if any booking overlaps with this timeslot
     return bookings.some(booking => {
       const bookingDate = new Date(booking.date).toISOString().split('T')[0];
+      
+      // Check facility name and date
       if (booking.facilityName !== facility.name || bookingDate !== targetDateStr) return false;
+      
+      // If we're checking for a specific hall, also check the hall
+      if (hallName && booking.hall !== hallName) return false;
       
       // Check if the timeslot overlaps with the booking
       const [startHour, startMin] = booking.startTime.split(':').map(Number);
@@ -945,22 +1299,22 @@ const AppContent = () => {
     });
 
         return (
-      <div ref={containerRef} className="overflow-x-hidden">
-        <div ref={scrollRef}>
+      <div ref={containerRef} className="overflow-x-auto">
+        <div ref={scrollRef} className="min-w-max">
           <div>
             <div className="grid grid-cols-8 gap-1 text-xs mb-2">
-              <div className="font-medium text-gray-700">Time</div>
+              <div className="font-medium text-gray-700 w-24">Time</div>
               {days.map(d => (
-                <div key={d.key} className="font-medium text-gray-700 text-center">{d.label}</div>
+                <div key={d.key} className="font-medium text-gray-700 text-center w-14">{d.label}</div>
               ))}
             </div>
             {slots.map((label, slotIdx) => (
               <div key={label} className="grid grid-cols-8 gap-1 items-center mb-1">
-                <div className="text-gray-600 w-14 text-xs">{label}</div>
+                <div className="text-gray-600 w-24 text-xs">{label}</div>
                 {days.map(d => {
                   const isOpen = grid?.[d.key]?.[slotIdx] !== false;
+                  // For facility view, we don't have a specific hall, so check all bookings for the facility
                   const isBooked = facility && isTimeslotBooked(facility, d.key, slotIdx);
-                  
                   let bgColor = 'bg-red-200'; // Default: closed
                   if (isBooked) {
                     bgColor = 'bg-orange-400'; // Booked
@@ -968,7 +1322,7 @@ const AppContent = () => {
                     bgColor = 'bg-green-200'; // Open
                   }
                   
-                  const common = `h-6 rounded transition-colors ${bgColor}`;
+                  const common = `h-6 w-16 rounded transition-colors ${bgColor}`;
                   
                   if (readOnly) {
                     return <div key={`${d.key}-${slotIdx}`} className={common}></div>;
@@ -1275,7 +1629,7 @@ const AppContent = () => {
               <span className="text-xs font-medium text-gray-500">Open</span>
             </div>
             <div className="flex items-baseline space-x-2">
-              <h3 className="text-3xl font-bold tracking-tight text-gray-900">{facilities.filter(f => f.status === 'open').length}</h3>
+              <h3 className="text-3xl font-bold tracking-tight text-gray-900">{(facilities || []).filter(f => f?.status === 'open').length}</h3>
               <span className="text-sm text-gray-500">Facilities</span>
             </div>
           </div>
@@ -1310,7 +1664,9 @@ const AppContent = () => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-            <h3 className="text-base font-semibold text-gray-900">Today's Schedule</h3>
+            <h3 className="text-base font-semibold text-gray-900">
+              {isAdmin() ? "Today's Schedule" : "My Schedule Today"}
+            </h3>
             <button
               onClick={refreshData}
               className="inline-flex items-center rounded-lg px-2 py-1 text-sm text-gray-600 hover:bg-gray-100"
@@ -1325,7 +1681,10 @@ const AppContent = () => {
             {bookings.filter(b => {
               const today = new Date().toISOString().split('T')[0];
               const bookingDate = new Date(b.date).toISOString().split('T')[0];
-              return bookingDate === today;
+              const isToday = bookingDate === today;
+              // For collaborators, only show their own bookings; for admins, show all
+              const isOwnBooking = isAdmin() || b.user === user?._id;
+              return isToday && isOwnBooking;
             }).map(booking => (
               <div key={booking._id} className="flex items-center justify-between rounded-xl border border-gray-200 bg-gray-50 px-4 py-3">
                 <div className="flex items-center space-x-4">
@@ -1343,11 +1702,14 @@ const AppContent = () => {
             {bookings.filter(b => {
               const today = new Date().toISOString().split('T')[0];
               const bookingDate = new Date(b.date).toISOString().split('T')[0];
-              return bookingDate === today;
+              const isToday = bookingDate === today;
+              // For collaborators, only show their own bookings; for admins, show all
+              const isOwnBooking = isAdmin() || b.user === user?._id;
+              return isToday && isOwnBooking;
             }).length === 0 && (
               <div className="text-center py-10 text-gray-500">
                 <Calendar className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-                <p>No bookings scheduled for today</p>
+                <p>{isAdmin() ? "No bookings scheduled for today" : "You have no bookings scheduled for today"}</p>
               </div>
             )}
           </div>
@@ -1359,14 +1721,14 @@ const AppContent = () => {
           </div>
           <div className="p-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {facilities.slice(0, 6).map(facility => (
+              {(facilities || []).slice(0, 6).map(facility => (
                 <div key={facility._id} className="flex items-center justify-between rounded-xl border border-gray-200 px-4 py-3">
                   <div>
-                    <h4 className="font-medium text-gray-900 text-sm">{facility.name}</h4>
+                    <h4 className="font-medium text-gray-900 text-sm">{facility?.name}</h4>
                     <p className="text-xs text-gray-500">Status</p>
                   </div>
-                  <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${facility.status === 'open' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                    {facility.status}
+                  <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium ${facility?.status === 'open' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                    {facility?.status}
                   </span>
                 </div>
               ))}
@@ -1377,328 +1739,105 @@ const AppContent = () => {
     </div>
   );
 
-  const BookingsView = () => (
-    <div className="p-8">
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <div className="relative flex-1 min-w-[220px] max-w-md">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-              <input
-                type="text"
-                placeholder="Search bookings..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">
-                <span className="text-xs text-gray-500">Status</span>
-                <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="bg-transparent text-sm focus:outline-none focus:ring-0">
-                  <option value="all">All</option>
-                  <option value="confirmed">Confirmed</option>
-                  <option value="pending">Pending</option>
-                  <option value="cancelled">Cancelled</option>
-                  <option value="completed">Completed</option>
-                </select>
-              </div>
-              <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">
-                <span className="text-xs text-gray-500">Facility</span>
-                <select value={filterFacilityId} onChange={(e) => setFilterFacilityId(e.target.value)} className="bg-transparent text-sm focus:outline-none focus:ring-0">
-                  <option value="all">All</option>
-                  {facilities.map(f => (<option key={f._id} value={f._id}>{f.name}</option>))}
-                </select>
-              </div>
-              <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">
-                <span className="text-xs text-gray-500">Date</span>
-                <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className="bg-transparent text-sm focus:outline-none focus:ring-0" />
-              </div>
-              <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">
-                <span className="text-xs text-gray-500">Type</span>
-                <select value={filterRecurring} onChange={(e) => setFilterRecurring(e.target.value)} className="bg-transparent text-sm focus:outline-none focus:ring-0">
-                  <option value="all">All</option>
-                  <option value="recurring">Recurring</option>
-                  <option value="one-time">One-time</option>
-                </select>
-              </div>
-              <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">
-                <span className="text-xs text-gray-500">Duration</span>
-                <select value={filterDuration} onChange={(e) => setFilterDuration(e.target.value)} className="bg-transparent text-sm focus:outline-none focus:ring-0">
-                  <option value="all">All</option>
-                  <option value="gt4h">&gt; 4h</option>
-                  <option value="lte4h">≤ 4h</option>
-                </select>
-              </div>
-              {isAdmin() && (
-                <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">
-                  <span className="text-xs text-gray-500">User</span>
-                  <select value={filterUser} onChange={(e) => setFilterUser(e.target.value)} className="bg-transparent text-sm focus:outline-none focus:ring-0">
-                    <option value="all">All</option>
-                    {users.map(u => (<option key={u._id} value={u._id}>{u.firstName} {u.lastName}</option>))}
-                  </select>
-                </div>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-500">{displayBookings.length} bookings</span>
-              {activeBookingsFilterCount > 0 && (
-                <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">{activeBookingsFilterCount} active</span>
-              )}
-              <button onClick={clearBookingsFilters} className="px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50" title="Clear filters">Clear</button>
-            </div>
-          </div>
-        </div>
-        
-        {
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="text-left p-4 font-medium text-gray-700">Facility</th>
-                  <th className="text-left p-4 font-medium text-gray-700">Date</th>
-                  <th className="text-left p-4 font-medium text-gray-700">Time</th>
-                  <th className="text-left p-4 font-medium text-gray-700">User</th>
-                  <th className="text-left p-4 font-medium text-gray-700">Purpose</th>
-                  <th className="text-left p-4 font-medium text-gray-700">Recurring</th>
-                  <th className="text-left p-4 font-medium text-gray-700">Status</th>
-                  <th className="text-left p-4 font-medium text-gray-700">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {displayBookings.map(booking => (
-                  <tr key={booking._id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="p-4 font-medium">{booking.facilityName}</td>
-                    <td className="p-4">
-                      {new Date(booking.date).toLocaleDateString()}
-                      {booking.isRecurring && (
-                        <span className="ml-2 text-xs text-gray-500">
-                          (+{booking.recurrenceCount - 1} more)
-                        </span>
-                      )}
-                    </td>
-                    <td className="p-4">{booking.startTime}-{booking.endTime}</td>
-                    <td className="p-4">{booking.userName}</td>
-                    <td className="p-4">{booking.purpose}</td>
-                    <td className="p-4">
-                      {booking.isRecurring && (
-                        <div className="flex items-center space-x-1">
-                          <span 
-                            className="text-lg font-bold text-blue-600"
-                            title={getRecurrenceInfo(booking.recurrencePattern, booking.recurrenceCount).tooltip}
-                          >
-                            {getRecurrenceInfo(booking.recurrencePattern, booking.recurrenceCount).symbol}
-                          </span>
-                          <span className="text-xs text-gray-500">
-                            {booking.recurrenceCount}x
-                          </span>
-                        </div>
-                      )}
-                    </td>
-                    <td className="p-4">
-                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(booking.status)}`}>
-                        {booking.status}
-                      </span>
-                    </td>
-                    <td className="p-4">
-                      <div className="flex items-center space-x-2">
-                        <button className="p-1 hover:bg-gray-100 rounded" onClick={() => setSelectedBooking(booking)} title="View details">
-                          <Eye className="w-4 h-4 text-gray-600" />
-                        </button>
-                        {(isAdmin() || canEditBooking(booking)) && !isBookingPast(booking) && (
-                          <>
-                            <button 
-                              onClick={() => handleEditBooking(booking)}
-                              className="p-1 hover:bg-gray-100 rounded"
-                            >
-                              <Edit2 className="w-4 h-4 text-gray-600" />
-                            </button>
-                            {isAdmin() && booking.status === 'pending' && (
-                              <button 
-                                onClick={() => handleVerifyBooking(booking._id)}
-                                className="px-2 py-1 text-xs border border-green-300 text-green-700 rounded hover:bg-green-50"
-                                title="Verify pending booking"
-                              >
-                                Verify
-                              </button>
-                            )}
-                            <button 
-                              onClick={() => handleDeleteBooking(booking._id)}
-                              className="p-1 hover:bg-gray-100 rounded"
-                            >
-                              <Trash2 className="w-4 h-4 text-red-600" />
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        }
-      </div>
-    </div>
-  );
-
-  const FacilitiesView = () => (
-    <div className="p-8">
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
-        <div className="p-4 border-b border-gray-200">
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <div className="relative flex-1 min-w-[240px] max-w-lg">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-              <input
-                type="text"
-                placeholder="Search facilities..."
-                value={facilitySearchTerm}
-                onChange={(e) => setFacilitySearchTerm(e.target.value)}
-                className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-full pl-3 pr-2 py-1.5">
-                <span className="text-xs text-gray-500">Status</span>
-                <select
-                  value={facilityStatusFilter}
-                  onChange={(e) => setFacilityStatusFilter(e.target.value)}
-                  className="bg-transparent text-sm focus:outline-none focus:ring-0"
-                >
-                  <option value="all">All</option>
-                  <option value="open">Open</option>
-                  <option value="closed">Closed</option>
-                </select>
-              </div>
-              <span className="text-sm text-gray-500">{filteredFacilitiesList.length} facilities</span>
-              {equipmentSelected.length > 0 && (
-                <span className="hidden sm:inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">{equipmentSelected.length} selected</span>
-              )}
-              {equipmentSelected.length > 0 && (
-                <button onClick={clearEquipmentFilter} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Clear</button>
-              )}
-            </div>
-          </div>
-        </div>
-        <div className="p-3">
-          <div className="flex items-center justify-between mb-2">
-            <h4 className="text-sm font-semibold text-gray-700">Equipment</h4>
-            {uniqueEquipment.length > 12 && (
-              <button onClick={() => setShowAllEquipmentFilters(v => !v)} className="text-xs text-blue-600 hover:text-blue-700">
-                {showAllEquipmentFilters ? 'Show less' : 'Show more'}
-              </button>
-            )}
-          </div>
-          <div className="flex flex-row flex-wrap gap-2 overflow-x-auto sm:overflow-visible pr-1">
-            {uniqueEquipment.length === 0 ? (
-              <span className="text-xs text-gray-500">No equipment found</span>
-            ) : (
-              (showAllEquipmentFilters ? uniqueEquipment : uniqueEquipment.slice(0, 12)).map(eq => {
-                const selected = equipmentSelected.includes(eq);
-                return (
-                  <button
-                    key={eq}
-                    type="button"
-                    onClick={() => toggleEquipmentFilter(eq)}
-                    className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs border transition-colors ${selected ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
-                    title={eq}
-                  >
-                    {selected && <span className="w-1.5 h-1.5 rounded-full bg-white"></span>}
-                    {eq}
-                  </button>
-                );
-              })
-            )}
-          </div>
-        </div>
-      </div>
-      {
-        <div className="bg-white rounded-xl shadow-sm border border-gray-200">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-gray-200">
-                  <th className="text-left p-4 font-medium text-gray-700">Facility Name</th>
-                  <th className="text-left p-4 font-medium text-gray-700">Status</th>
-                  <th className="text-left p-4 font-medium text-gray-700">Equipment</th>
-                  <th className="text-left p-4 font-medium text-gray-700">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredFacilitiesList.map(facility => (
-                  <tr key={facility._id} className="border-b border-gray-100 hover:bg-gray-50">
-                    <td className="p-4 font-medium">{facility.name}</td>
-                    <td className="p-4">
-                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(facility.status)}`}>
-                        {facility.status}
-                      </span>
-                    </td>
-                    <td className="p-4">
-                      <div className="flex flex-wrap gap-1">
-                        {facility.equipment.slice(0, 2).map((item, index) => (
-                          <span key={index} className="text-xs text-gray-600">
-                            {item}{index < 1 && facility.equipment.length > 1 ? ',' : ''}
-                          </span>
-                        ))}
-                        {facility.equipment.length > 2 && (
-                          <span className="text-xs text-gray-400">+{facility.equipment.length - 2} more</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="p-4">
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => setSelectedFacility(facility)}
-                          className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                          title="View details"
-                        >
-                          <Eye className="w-4 h-4 text-blue-600" />
-                        </button>
-                        {canManageFacilities() && (
-                          <>
-                            <button
-                              onClick={() => openEditFacility(facility)}
-                              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                              title="Edit facility"
-                            >
-                              <Edit2 className="w-4 h-4 text-gray-600" />
-                            </button>
-                            <button
-                              onClick={() => handleDeleteFacility(facility._id)}
-                              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-                              title="Delete facility"
-                            >
-                              <Trash2 className="w-4 h-4 text-red-600" />
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      }
-    </div>
-  );
-
   const TimetableView = () => {
     const weekDates = getWeekDates(selectedWeek);
     const dayNames = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+    
+    // Reset hall filter when facility changes
+    useEffect(() => {
+      if (facilityFilter === 'all') {
+        setHallFilter('all');
+      }
+    }, [facilityFilter]);
+    
     const visibleFacilities = useMemo(
-      () => (facilityFilter === 'all' ? facilities : facilities.filter(f => f._id === facilityFilter)),
+      () => (facilityFilter === 'all' ? (facilities || []) : (facilities || []).filter(f => f?._id === facilityFilter)),
       [facilityFilter, facilities]
     );
     
     // Helper function to get all bookings for a facility on a specific date
-    const getBookingsForFacilityAndDate = (facility, date) => {
+    const getBookingsForFacilityAndDate = (facility, date, hallName = null) => {
       const dateStr = formatDateForComparison(date);
-      return bookings.filter(booking => {
-        const bookingDate = new Date(booking.date).toISOString().split('T')[0];
-        return booking.facilityName === facility.name && bookingDate === dateStr;
-      }).sort((a, b) => a.startTime.localeCompare(b.startTime));
+      return (bookings || []).filter(booking => {
+        const bookingDate = new Date(booking?.date).toISOString().split('T')[0];
+        const matchesFacility = booking?.facilityName === facility?.name;
+        const matchesDate = bookingDate === dateStr;
+        const matchesHall = !hallName || booking?.hall === hallName;
+        return matchesFacility && matchesDate && matchesHall;
+      }).sort((a, b) => (a?.startTime || '').localeCompare(b?.startTime || ''));
+    };
+
+    // Helper function to group overlapping bookings and calculate their positions
+    const groupOverlappingBookings = (bookings) => {
+      if (!bookings || bookings.length === 0) return [];
+      
+      const sortedBookings = [...bookings].sort((a, b) => {
+        const aStart = parseTimeToMinutes(a?.startTime || '00:00');
+        const bStart = parseTimeToMinutes(b?.startTime || '00:00');
+        return aStart - bStart;
+      });
+      
+      const groups = [];
+      const processed = new Set();
+      
+      sortedBookings.forEach(booking => {
+        if (processed.has(booking._id)) return;
+        
+        const overlapping = [booking];
+        processed.add(booking._id);
+        
+        // Find all overlapping bookings
+        sortedBookings.forEach(other => {
+          if (processed.has(other._id)) return;
+          
+          const bookingStart = parseTimeToMinutes(booking?.startTime || '00:00');
+          const bookingEnd = parseTimeToMinutes(booking?.endTime || '00:00');
+          const otherStart = parseTimeToMinutes(other?.startTime || '00:00');
+          const otherEnd = parseTimeToMinutes(other?.endTime || '00:00');
+          
+          // Check if bookings overlap
+          if (bookingStart < otherEnd && bookingEnd > otherStart) {
+            overlapping.push(other);
+            processed.add(other._id);
+          }
+        });
+        
+        // Sort overlapping bookings by start time
+        overlapping.sort((a, b) => {
+          const aStart = parseTimeToMinutes(a?.startTime || '00:00');
+          const bStart = parseTimeToMinutes(b?.startTime || '00:00');
+          return aStart - bStart;
+        });
+        
+        groups.push(overlapping);
+      });
+      
+      return groups;
+    };
+
+    // Helper function to check if there are any overlapping bookings in a day
+    const hasOverlappingBookings = (bookings) => {
+      if (!bookings || bookings.length < 2) return false;
+      
+      const sortedBookings = [...bookings].sort((a, b) => {
+        const aStart = parseTimeToMinutes(a?.startTime || '00:00');
+        const bStart = parseTimeToMinutes(b?.startTime || '00:00');
+        return aStart - bStart;
+      });
+      
+      for (let i = 0; i < sortedBookings.length - 1; i++) {
+        const current = sortedBookings[i];
+        const next = sortedBookings[i + 1];
+        
+        const currentEnd = parseTimeToMinutes(current?.endTime || '00:00');
+        const nextStart = parseTimeToMinutes(next?.startTime || '00:00');
+        
+        if (currentEnd > nextStart) {
+          return true;
+        }
+      }
+      
+      return false;
     };
 
     // Rows should auto-grow based on content; enforce only a minimum height per cell
@@ -1725,20 +1864,39 @@ const AppContent = () => {
       <div className="p-8">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-900">
-            {facilityFilter === 'all' ? 'Weekly Timetable' : `${facilities.find(f => f._id === facilityFilter)?.name} Timetable`}
+            {facilityFilter === 'all' ? 'Weekly Timetable' : `${(facilities || []).find(f => f?._id === facilityFilter)?.name} Timetable`}
           </h3>
           <div className="flex items-center space-x-2">
             <label className="text-sm text-gray-600">Facility:</label>
             <select
               value={facilityFilter}
-              onChange={(e) => setFacilityFilter(e.target.value)}
+              onChange={(e) => {
+                setFacilityFilter(e.target.value);
+                setHallFilter('all'); // Reset hall filter when facility changes
+              }}
               className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
               <option value="all">All Facilities</option>
-              {facilities.map((f) => (
-                <option key={f._id} value={f._id}>{f.name}</option>
+              {(facilities || []).map((f) => (
+                <option key={f?._id} value={f?._id}>{f?.name}</option>
               ))}
             </select>
+            
+            {facilityFilter !== 'all' && (
+              <>
+                <label className="text-sm text-gray-600 ml-4">Hall:</label>
+                <select
+                  value={hallFilter}
+                  onChange={(e) => setHallFilter(e.target.value)}
+                  className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="all">All Halls</option>
+                  {(facilities || []).find(f => f?._id === facilityFilter)?.halls?.map((hall) => (
+                    <option key={hall?.name} value={hall?.name}>{hall?.name}</option>
+                  )) || []}
+                </select>
+              </>
+            )}
           </div>
         </div>
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
@@ -1747,12 +1905,27 @@ const AppContent = () => {
               <div className="min-w-[1000px] p-4">
                 <div className="grid grid-cols-8 gap-0 border-b border-gray-200 mb-2">
                   <div className="p-2 font-medium text-gray-700 bg-gray-50">Time</div>
-                  {dayNames.map((d, i) => (
-                    <div key={d} className="p-2 text-center font-medium text-gray-700 bg-gray-50">
-                      <div>{d}</div>
-                      <div className="text-xs text-gray-500">{weekDates[i].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
-                    </div>
-                  ))}
+                  {dayNames.map((d, i) => {
+                    const sel = (facilities || []).find(f => f?._id === facilityFilter);
+                    const dayBookings = sel ? getBookingsForFacilityAndDate(sel, weekDates[i], hallFilter !== 'all' ? hallFilter : null) : [];
+                    const hasOverlaps = hasOverlappingBookings(dayBookings);
+                    const isToday = formatDateForComparison(weekDates[i]) === formatDateForComparison(new Date());
+                    
+                    return (
+                      <div key={d} className="p-2 text-center font-medium text-gray-700 bg-gray-50 relative">
+                        <div>{d}</div>
+                        <div className="text-xs text-gray-500">{weekDates[i].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
+                        {isToday && (
+                          <div className="mt-1 inline-block px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full">
+                            Today
+                          </div>
+                        )}
+                        {hasOverlaps && (
+                          <div className="absolute top-1 right-1 w-2 h-2 bg-orange-400 rounded-full" title="Overlapping bookings detected"></div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
                 <div className="grid grid-cols-8 gap-0">
                   {/* Time Axis */}
@@ -1768,35 +1941,82 @@ const AppContent = () => {
                   </div>
                   {/* Day Columns */}
                   {weekDates.map((date, i) => {
-                    const sel = facilities.find(f => f._id === facilityFilter);
-                    const dayBookings = sel ? getBookingsForFacilityAndDate(sel, date) : [];
+                    const sel = (facilities || []).find(f => f?._id === facilityFilter);
+                    const dayBookings = sel ? getBookingsForFacilityAndDate(sel, date, hallFilter !== 'all' ? hallFilter : null) : [];
+                    const bookingGroups = groupOverlappingBookings(dayBookings);
+                    const isToday = formatDateForComparison(date) === formatDateForComparison(new Date());
+                    
                     return (
-                      <div key={i} className="relative border-r last:border-r-0 border-gray-200" style={{ height: `${totalHours * hourHeightPx}px` }}>
+                      <div key={i} className={`relative border-r last:border-r-0 border-gray-200 ${isToday ? 'bg-blue-50 bg-opacity-30' : ''}`} style={{ height: `${totalHours * hourHeightPx}px` }}>
                         {hours.map((h, idx) => (
                           <div key={h} className="absolute left-0 right-0 border-t border-gray-100" style={{ top: `${idx * hourHeightPx}px` }}></div>
                         ))}
-                        {dayBookings.map((b) => {
-                          const style = computeBlockStyle(b.startTime, b.endTime);
-                          const isConfirmed = b.status === 'confirmed';
-                          const masked = shouldMaskBooking(b);
-                          return (
-                            <div
-                              key={b._id}
-                              className={`absolute left-1 right-1 rounded-md px-2 py-1 shadow-sm overflow-hidden ${isConfirmed ? 'bg-blue-500 text-white' : 'bg-amber-500 text-white'}`}
-                              style={{ ...style, cursor: (isAdmin() || b.user === user?._id) ? 'pointer' : 'default' }}
-                              title={getMaskedTitle(b)}
-                              onClick={(e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                if (isAdmin() || b.user === user?._id) {
-                                  setSelectedBooking(b);
-                                }
-                              }}
-                            >
-                              <div className="text-[10px] opacity-90">{b.startTime}-{b.endTime}</div>
-                              <div className="text-xs font-medium truncate">{masked ? 'Booked' : (b.purpose || b.userName)}</div>
-                            </div>
-                          );
+                        {bookingGroups.map((group, groupIndex) => {
+                          if (group.length === 1) {
+                            // Single booking - render normally
+                            const b = group[0];
+                            const style = computeBlockStyle(b.startTime, b.endTime);
+                            const isConfirmed = b.status === 'confirmed';
+                            const masked = shouldMaskBooking(b);
+                            return (
+                              <div
+                                key={b._id}
+                                className={`absolute left-1 right-1 rounded-md px-2 py-1 shadow-sm overflow-hidden ${isConfirmed ? 'bg-blue-500 text-white' : 'bg-amber-500 text-white'}`}
+                                style={{ ...style, cursor: (isAdmin() || b.user === user?._id) ? 'pointer' : 'default' }}
+                                title={getMaskedTitle(b)}
+                                onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  if (isAdmin() || b.user === user?._id) {
+                                    setSelectedBooking(b);
+                                  }
+                                }}
+                              >
+                                <div className="text-[10px] opacity-90">{b.startTime}-{b.endTime}</div>
+                                <div className="text-xs font-medium truncate">{masked ? 'Booked' : (b.purpose || b.userName)}</div>
+                                {hallFilter === 'all' && b.hall && (
+                                  <div className="text-[9px] opacity-75 mt-1">{b.hall}</div>
+                                )}
+                              </div>
+                            );
+                          } else {
+                            // Multiple overlapping bookings - render side by side
+                            return group.map((b, bookingIndex) => {
+                              const style = computeBlockStyle(b.startTime, b.endTime);
+                              const isConfirmed = b.status === 'confirmed';
+                              const masked = shouldMaskBooking(b);
+                              const totalBookings = group.length;
+                              const bookingWidth = 100 / totalBookings; // Percentage width
+                              const leftOffset = (bookingIndex * bookingWidth); // Percentage left position
+                              
+                              return (
+                                <div
+                                  key={b._id}
+                                  className={`absolute rounded-md px-2 py-1 shadow-sm overflow-hidden ${isConfirmed ? 'bg-blue-500 text-white' : 'bg-amber-500 text-white'}`}
+                                  style={{ 
+                                    ...style, 
+                                    left: `${leftOffset + 1}%`,
+                                    right: `${100 - leftOffset - bookingWidth + 1}%`,
+                                    cursor: (isAdmin() || b.user === user?._id) ? 'pointer' : 'default'
+                                  }}
+                                  title={getMaskedTitle(b)}
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    e.stopPropagation();
+                                    if (isAdmin() || b.user === user?._id) {
+                                      setSelectedBooking(b);
+                                    }
+                                  }}
+                                >
+                                  <div className="text-[10px] opacity-90">{b.startTime}-{b.endTime}</div>
+                                  <div className="text-xs font-medium truncate">{masked ? 'Booked' : (b.purpose || b.userName)}</div>
+                                  {hallFilter === 'all' && b.hall && (
+                                    <div className="text-[9px] opacity-75 mt-1">{b.hall}</div>
+                                  )}
+                                </div>
+                              );
+                            });
+                          }
                         })}
                       </div>
                     );
@@ -1907,6 +2127,11 @@ const AppContent = () => {
                                           {booking.purpose}
                                         </div>
                                       )}
+                                      {booking.hall && (
+                                        <div className="text-xs opacity-75 truncate mt-1 text-blue-200">
+                                          {booking.hall}
+                                        </div>
+                                      )}
                                     </div>
                                   );
                                 })}
@@ -1960,6 +2185,11 @@ const AppContent = () => {
                       <div className="w-4 h-4 bg-blue-50 rounded shadow-sm"></div>
                       <span className="text-gray-600">Today</span>
                     </div>
+                    <div className="flex items-center space-x-2">
+                      <div className="w-4 h-4 bg-blue-200 rounded shadow-sm"></div>
+                      <span className="text-gray-600">Hall Info</span>
+                    </div>
+                    
                   </div>
                 </div>
               </div>
@@ -1974,8 +2204,8 @@ const AppContent = () => {
               <div>
                 <p className="text-sm text-gray-600">This Week</p>
                 <p className="text-2xl font-bold text-gray-900">
-                  {bookings.filter(b => {
-                    const bookingDate = new Date(b.date);
+                  {(bookings || []).filter(b => {
+                    const bookingDate = new Date(b?.date);
                     return weekDates.some(weekDate => 
                       formatDateForComparison(weekDate) === formatDateForComparison(bookingDate)
                     );
@@ -1992,486 +2222,61 @@ const AppContent = () => {
               <div>
                 <p className="text-sm text-gray-600">Available</p>
                 <p className="text-2xl font-bold text-green-600">
-                  {facilities.filter(f => f.status === 'open').length}
+                  {(facilities || []).filter(f => f?.status === 'open').length}
                 </p>
                 <p className="text-xs text-gray-500">Facilities Now</p>
               </div>
               <MapPin className="w-8 h-8 text-green-500" />
             </div>
           </div>
+          
+          {facilityFilter !== 'all' && (
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Selected Hall</p>
+                  <p className="text-2xl font-bold text-purple-600">
+                    {hallFilter === 'all' ? 'All Halls' : hallFilter}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    {hallFilter === 'all' 
+                      ? `${(facilities || []).find(f => f?._id === facilityFilter)?.halls?.length || 0} total halls`
+                      : 'Single hall view'
+                    }
+                  </p>
+                </div>
+                <Home className="w-8 h-8 text-purple-500" />
+              </div>
+            </div>
+          )}
+          
+          {facilityFilter !== 'all' && hallFilter !== 'all' && (
+            <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Hall Bookings</p>
+                  <p className="text-2xl font-bold text-blue-600">
+                    {(bookings || []).filter(b => {
+                      const bookingDate = new Date(b?.date);
+                      const isInWeek = weekDates.some(weekDate => 
+                        formatDateForComparison(weekDate) === formatDateForComparison(bookingDate)
+                      );
+                      const matchesFacility = b?.facilityName === (facilities || []).find(f => f?._id === facilityFilter)?.name;
+                      const matchesHall = b?.hall === hallFilter;
+                      return isInWeek && matchesFacility && matchesHall;
+                    }).length}
+                  </p>
+                  <p className="text-xs text-gray-500">This week</p>
+                </div>
+                <Users className="w-8 h-8 text-blue-500" />
+              </div>
+            </div>
+          )}
         </div>
       </div>
     );
   };
 
-  const BookingModal = () => (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-hidden">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-7xl mx-4 max-h-[95vh] overflow-hidden">
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xl font-semibold text-gray-900">
-              {editingBooking ? 'Edit Booking' : 'Create New Booking'}
-            </h3>
-            <button
-              onClick={() => {
-                setShowBookingModal(false);
-                setEditingBooking(null);
-                setBookingForm({
-                  facility: '',
-                  date: new Date().toISOString().split('T')[0], // Default to today
-                  startTime: '',
-                  endTime: '',
-                  purpose: '',
-                  recurring: 'none'
-                });
-              }}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <X className="w-5 h-5 text-gray-500" />
-            </button>
-          </div>
-        </div>
-        
-        <form 
-          onSubmit={editingBooking ? handleUpdateBooking : handleBookingSubmit} 
-          className="p-6 flex gap-6"
-        >
-          {/* Left Column - Form Fields */}
-          <div className="w-80 space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Facility</label>
-              <select
-                value={bookingForm.facility}
-                onChange={(e) => handleFormChange('facility', e.target.value)}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              >
-                <option value="">Select a facility ({facilities.filter(f => (f.status || '').toLowerCase() === 'open').length} open)</option>
-                {facilities
-                  .filter(f => (f.status || '').toLowerCase() === 'open')
-                  .map(facility => (
-                    <option key={facility._id} value={facility.name}>
-                      {facility.name}
-                    </option>
-                  ))}
-              </select>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
-              <input
-                type="date"
-                value={bookingForm.date}
-                onChange={(e) => handleFormChange('date', e.target.value)}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                min={new Date().toISOString().split('T')[0]}
-                required
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Start Time</label>
-              <div className="text-sm text-gray-600 mb-2">Click on available time slots below</div>
-              <input
-                type="text"
-                value={bookingForm.startTime}
-                readOnly
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-700"
-                placeholder="Select start time from grid"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">End Time</label>
-              <div className="text-sm text-gray-600 mb-2">Click on available time slots below</div>
-              <input
-                type="text"
-                value={bookingForm.endTime}
-                readOnly
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-700"
-                placeholder="Select end time from grid"
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Purpose</label>
-              <input
-                ref={purposeInputRef}
-                type="text"
-                value={bookingForm.purpose}
-                onChange={(e) => handleFormChange('purpose', e.target.value)}
-                placeholder="e.g., Basketball Training, Team Meeting"
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Recurring Booking</label>
-              <select
-                value={bookingForm.recurring}
-                onChange={(e) => handleFormChange('recurring', e.target.value)}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="none">No Recurrence</option>
-                <option value="weekly">Weekly</option>
-                <option value="biweekly">Bi-weekly</option>
-                <option value="monthly">Monthly</option>
-              </select>
-            </div>
-            
-            <div className="pt-4">
-              <div className="text-xs text-gray-600 mb-2">
-                Click on available (green) slots to set start time, then click another slot to set end time.
-              </div>
-            </div>
-            
-            {/* Form Buttons */}
-            <div className="pt-6 border-t border-gray-200">
-              <div className="flex items-center justify-end space-x-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowBookingModal(false);
-                    setEditingBooking(null);
-                    setBookingForm({
-                      facility: '',
-                      date: new Date().toISOString().split('T')[0], // Default to today
-                      startTime: '',
-                      endTime: '',
-                      purpose: '',
-                      recurring: 'none'
-                    });
-                  }}
-                  className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
-                >
-                  {editingBooking ? 'Update Booking' : 'Create Booking'}
-                </button>
-              </div>
-            </div>
-          </div>
-          
-          {/* Right Column - Full Timetable */}
-          <div className="flex-1">
-            <label className="block text-sm font-medium text-gray-700 mb-3">Available Time Slots</label>
-            <div className="bg-gray-50 rounded-lg p-4">
-              {(() => {
-                const selectedFacility = facilities.find(f => f.name === bookingForm.facility);
-                if (!selectedFacility) return <div className="text-gray-500 text-center py-4">Select a facility first</div>;
-                
-                const days = [
-                  { key: 'monday', label: 'Mon' },
-                  { key: 'tuesday', label: 'Tue' },
-                  { key: 'wednesday', label: 'Wed' },
-                  { key: 'thursday', label: 'Thu' },
-                  { key: 'friday', label: 'Fri' },
-                  { key: 'saturday', label: 'Sat' },
-                  { key: 'sunday', label: 'Sun' },
-                ];
-                
-                const slots = Array.from({ length: 30 }, (_, i) => {
-                  const hour = 7 + Math.floor(i / 2);
-                  const minute = i % 2 === 0 ? '00' : '30';
-                  return `${String(hour).padStart(2, '0')}:${minute}`;
-                });
-                
-                const getDayFromDate = (dateStr) => {
-                  const date = new Date(dateStr);
-                  const dayIndex = (date.getDay() + 6) % 7; // Convert to Monday=0 format
-                  return days[dayIndex].key;
-                };
-                
-                const selectedDay = getDayFromDate(bookingForm.date);
-                
-                const isSlotAvailable = (day, slotIdx) => {
-                  return selectedFacility.openingHoursGrid?.[day]?.[slotIdx] !== false;
-                };
-                
-                const handleSlotClick = (day, slotIdx, time, event) => {
-                  if (!isSlotAvailable(day, slotIdx)) return;
-                  
-                  // Prevent default behavior and stop propagation
-                  event.preventDefault();
-                  event.stopPropagation();
-                  
-                  if (!bookingForm.startTime) {
-                    // Set start time
-                    setBookingForm(prev => ({ ...prev, startTime: time }));
-                  } else if (!bookingForm.endTime) {
-                    // Set end time - must be after start time
-                    const startIdx = slots.indexOf(bookingForm.startTime);
-                    if (slotIdx > startIdx) {
-                      setBookingForm(prev => ({ ...prev, endTime: time }));
-                    }
-                  } else {
-                    // Reset and set new start time
-                    setBookingForm(prev => ({ ...prev, startTime: time, endTime: '' }));
-                  }
-                };
-                
-                const isSlotSelected = (time) => {
-                  return time === bookingForm.startTime || time === bookingForm.endTime;
-                };
-                
-                const isSlotInRange = (time) => {
-                  if (!bookingForm.startTime || !bookingForm.endTime) return false;
-                  const startIdx = slots.indexOf(bookingForm.startTime);
-                  const endIdx = slots.indexOf(bookingForm.endTime);
-                  const currentIdx = slots.indexOf(time);
-                  return currentIdx >= startIdx && currentIdx <= endIdx;
-                };
-                
-                return (
-                  <div>
-                    <div className="grid grid-cols-8 gap-1 text-xs mb-2">
-                      <div className="font-medium text-gray-700">Time</div>
-                      {days.map(d => (
-                        <div key={d.key} className="font-medium text-gray-700 text-center">{d.label}</div>
-                      ))}
-                    </div>
-                    {slots.map((time, slotIdx) => (
-                      <div key={time} className="grid grid-cols-8 gap-1 items-center mb-1">
-                        <div className="text-gray-600 w-16 text-xs">{time}</div>
-                        {days.map(d => {
-                          const dayKey = d.key;
-                          const isAvailable = isSlotAvailable(dayKey, slotIdx);
-                          const isSelected = isSlotSelected(time) && dayKey === selectedDay;
-                          const isInRange = isSlotInRange(time) && dayKey === selectedDay;
-                          const isSelectedDay = dayKey === selectedDay;
-                          
-                          let bgColor = 'bg-gray-200';
-                          if (isSelected) bgColor = 'bg-blue-500';
-                          else if (isInRange) bgColor = 'bg-blue-200';
-                          else if (isAvailable) bgColor = 'bg-green-200';
-                          else bgColor = 'bg-red-200';
-                          
-                          return (
-                            <button
-                              key={`${dayKey}-${slotIdx}`}
-                              type="button"
-                              disabled={!isAvailable || !isSelectedDay}
-                              className={`h-6 rounded transition-colors text-xs ${bgColor} ${
-                                isAvailable && isSelectedDay ? 'hover:opacity-80 cursor-pointer' : 'cursor-not-allowed'
-                              } ${!isSelectedDay ? 'blur-[0.5px] opacity-30' : ''}`}
-                              onClick={(e) => isSelectedDay && handleSlotClick(dayKey, slotIdx, time, e)}
-                              title={`${d.label} ${time} ${isAvailable ? 'Available' : 'Closed'}${!isSelectedDay ? ' (not selected day)' : ''}`}
-                            />
-                          );
-                        })}
-                      </div>
-                    ))}
-                  </div>
-                );
-              })()}
-            </div>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-
-  const FacilityDetailModal = () => (
-    selectedFacility && (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-hidden">
-        <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl mx-4 max-h-[90vh] overflow-y-auto">
-          <div className="p-6 border-b border-gray-200">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xl font-semibold text-gray-900">{selectedFacility.name}</h3>
-              <button
-                onClick={() => setSelectedFacility(null)}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5 text-gray-500" />
-              </button>
-            </div>
-          </div>
-          
-          <div className="p-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-              <div>
-                <h4 className="text-sm font-medium text-gray-700 mb-3">Facility Information</h4>
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between py-2 border-b border-gray-100">
-                    <span className="text-sm text-gray-600">Status</span>
-                    <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(selectedFacility.status)}`}>
-                      {selectedFacility.status}
-                    </span>
-                  </div>
-                  <div className="pt-2">
-                    <h5 className="text-xs font-semibold text-gray-600 mb-2">Opening times</h5>
-                    <div className="grid grid-cols-2 gap-y-1 text-sm">
-                      <span className="text-gray-500">Mon</span>
-                      <span className="text-gray-900">{getOpeningTimeRangesForDay(selectedFacility.openingHoursGrid, 'monday')}</span>
-                      <span className="text-gray-500">Tue</span>
-                      <span className="text-gray-900">{getOpeningTimeRangesForDay(selectedFacility.openingHoursGrid, 'tuesday')}</span>
-                      <span className="text-gray-500">Wed</span>
-                      <span className="text-gray-900">{getOpeningTimeRangesForDay(selectedFacility.openingHoursGrid, 'wednesday')}</span>
-                      <span className="text-gray-500">Thu</span>
-                      <span className="text-gray-900">{getOpeningTimeRangesForDay(selectedFacility.openingHoursGrid, 'thursday')}</span>
-                      <span className="text-gray-500">Fri</span>
-                      <span className="text-gray-900">{getOpeningTimeRangesForDay(selectedFacility.openingHoursGrid, 'friday')}</span>
-                      <span className="text-gray-500">Sat</span>
-                      <span className="text-gray-900">{getOpeningTimeRangesForDay(selectedFacility.openingHoursGrid, 'saturday')}</span>
-                      <span className="text-gray-500">Sun</span>
-                      <span className="text-gray-900">{getOpeningTimeRangesForDay(selectedFacility.openingHoursGrid, 'sunday')}</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-              
-              <div>
-                <h4 className="text-sm font-medium text-gray-700 mb-3">Available Equipment</h4>
-                <div className="flex flex-wrap gap-2">
-                  {selectedFacility.equipment.map((item, index) => (
-                    <span key={index} className="px-3 py-1 bg-blue-50 text-blue-700 rounded-lg text-sm">
-                      {item}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            </div>
-            
-            <div>
-              <h4 className="text-sm font-medium text-gray-700 mb-3">Weekly Schedule</h4>
-              <OpeningHoursGrid
-                grid={selectedFacility.openingHoursGrid}
-                readOnly
-                facility={selectedFacility}
-              />
-              
-              {/* Color Legend */}
-              <div className="mt-4 flex items-center space-x-6 text-sm">
-                <div className="flex items-center space-x-2">
-                  <div className="w-4 h-4 bg-green-200 rounded"></div>
-                  <span className="text-gray-600">Available</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <div className="w-4 h-4 bg-orange-400 rounded"></div>
-                  <span className="text-gray-600">Booked</span>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <div className="w-4 h-4 bg-red-200 rounded"></div>
-                  <span className="text-gray-600">Closed</span>
-                </div>
-              </div>
-            </div>
-            
-            <div className="mt-6 flex items-center justify-end space-x-3">
-              {selectedFacility.status === 'open' ? (
-                <button
-                  onClick={() => {
-                    setSelectedFacility(null);
-                    setShowBookingModal(true);
-                    setBookingForm({...bookingForm, facility: selectedFacility.name});
-                  }}
-                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                >
-                  Book This Facility
-                </button>
-              ) : (
-                <div className="text-sm text-red-600 font-medium">Facility is closed</div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  );
-
-  const BookingDetailModal = () => (
-    selectedBooking && (
-      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-hidden">
-        <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
-          <div className="p-6 border-b border-gray-200">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xl font-semibold text-gray-900">Booking Details</h3>
-              <button
-                onClick={() => setSelectedBooking(null)}
-                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-              >
-                <X className="w-5 h-5 text-gray-500" />
-              </button>
-            </div>
-          </div>
-          <div className="p-6 space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <p className="text-xs text-gray-500">Facility</p>
-                <p className="text-sm font-medium text-gray-900">{selectedBooking.facilityName}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500">Date</p>
-                <p className="text-sm font-medium text-gray-900">{new Date(selectedBooking.date).toLocaleDateString()}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500">Time</p>
-                <p className="text-sm font-medium text-gray-900">{selectedBooking.startTime}-{selectedBooking.endTime}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500">Booked By</p>
-                <p className="text-sm font-medium text-gray-900">{selectedBooking.userName}</p>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500">Status</p>
-                <span className={`inline-block mt-1 px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(selectedBooking.status)}`}>
-                  {selectedBooking.status}
-                </span>
-              </div>
-              <div>
-                <p className="text-xs text-gray-500">Recurring</p>
-                <p className="text-sm font-medium text-gray-900 capitalize">{selectedBooking.recurring && selectedBooking.recurring !== 'none' ? selectedBooking.recurring : 'none'}</p>
-              </div>
-            </div>
-            {selectedBooking.purpose && (
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Purpose</p>
-                <p className="text-sm text-gray-900">{selectedBooking.purpose}</p>
-              </div>
-            )}
-            {selectedBooking.notes && (
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Notes</p>
-                <p className="text-sm text-gray-900">{selectedBooking.notes}</p>
-              </div>
-            )}
-            
-            <div className="flex items-center justify-end gap-2 pt-2">
-              {(isAdmin() || canEditBooking(selectedBooking)) && !isBookingPast(selectedBooking) && (
-                <>
-                  <button
-                    onClick={() => { handleEditBooking(selectedBooking); setSelectedBooking(null); }}
-                    className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50"
-                    title="Edit booking"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => { handleDeleteBooking(selectedBooking._id); setSelectedBooking(null); }}
-                    className="px-4 py-2 border border-red-300 text-red-600 rounded-lg text-sm hover:bg-red-50"
-                    title="Delete booking"
-                  >
-                    Delete
-                  </button>
-                </>
-              )}
-              <button
-                onClick={() => setSelectedBooking(null)}
-                className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    )
-  );
 
   const UserBookingsModal = () => (
     showUserBookings && selectedUser ? (
@@ -2520,139 +2325,6 @@ const AppContent = () => {
         </div>
       </div>
     ) : null
-  );
-
-  const FacilityModal = () => (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-hidden">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-7xl mx-4 max-h-[95vh] overflow-hidden">
-        <div className="p-6 border-b border-gray-200">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xl font-semibold text-gray-900">
-              {editingFacility ? 'Edit Facility' : 'Add New Facility'}
-            </h3>
-            <button
-              onClick={() => { setShowFacilityModal(false); setEditingFacility(null); }}
-              className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
-            >
-              <X className="w-5 h-5 text-gray-500" />
-            </button>
-          </div>
-        </div>
-        <form onSubmit={handleSaveFacility} className="p-6 flex gap-6">
-          {/* Left Column - Form Fields */}
-          <div className="w-80 space-y-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
-              <input
-                type="text"
-                value={facilityForm.name}
-                onChange={(e) => handleFacilityChange('name', e.target.value)}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                required
-              />
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
-              <select
-                value={facilityForm.status}
-                onChange={(e) => handleFacilityChange('status', e.target.value)}
-                className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="open">Open</option>
-                <option value="closed">Closed</option>
-              </select>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Equipment</label>
-              <div className="space-y-2">
-                {facilityForm.equipmentList.map((item, idx) => (
-                  <div key={idx} className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={item}
-                      onChange={(e) => {
-                        const value = e.target.value;
-                        setFacilityForm(prev => ({
-                          ...prev,
-                          equipmentList: prev.equipmentList.map((it, i) => i === idx ? value : it)
-                        }));
-                      }}
-                      className="flex-1 px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      placeholder="e.g., Projector"
-                    />
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setFacilityForm(prev => ({
-                          ...prev,
-                          equipmentList: prev.equipmentList.filter((_, i) => i !== idx)
-                        }));
-                      }}
-                      className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
-                      aria-label="Remove equipment"
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setFacilityForm(prev => ({ ...prev, equipmentList: [...prev.equipmentList, ''] }));
-                  }}
-                  className="mt-2 inline-flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm"
-                >
-                  + Add Equipment
-                </button>
-              </div>
-            </div>
-            
-            {/* Form Buttons */}
-            <div className="pt-6 border-t border-gray-200">
-              <div className="flex items-center justify-end gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={() => { setShowFacilityModal(false); setEditingFacility(null); }}
-                  className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
-                >
-                  Save
-                </button>
-              </div>
-            </div>
-          </div>
-          
-          {/* Right Column - Full Timetable */}
-          <div className="flex-1">
-            <h4 className="text-sm font-medium text-gray-700 mb-3">Weekly Schedule</h4>
-            <div className="bg-gray-50 rounded-lg p-3">
-              <OpeningHoursGrid
-                grid={facilityForm.openingHoursGrid}
-                onToggle={(day, idx) => {
-                  setFacilityForm(prev => ({
-                    ...prev,
-                    openingHoursGrid: {
-                      ...prev.openingHoursGrid,
-                      [day]: prev.openingHoursGrid[day].map((v, i) => i === idx ? !v : v)
-                    }
-                  }));
-                }}
-                facility={editingFacility}
-              />
-            </div>
-          </div>
-        </form>
-      </div>
-    </div>
   );
 
   // If not authenticated, show auth screens
@@ -2738,9 +2410,325 @@ const AppContent = () => {
         <Header />
         
         {currentView === 'dashboard' && <DashboardView />}
-        {currentView === 'bookings' && <BookingsView />}
+
+        {/* {currentView === 'bookings' && <BookingsView />} */}
+        {currentView === 'bookings' && (
+          <div className="p-8">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200">
+              <div className="p-6 border-b border-gray-200">
+                <div className="flex items-center justify-between gap-4 flex-wrap">
+                  <div className="relative flex-1 min-w-[220px] max-w-md">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                    <input
+                      type="text"
+                      placeholder="Search bookings..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">
+                      <span className="text-xs text-gray-500">Status</span>
+                      <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="bg-transparent text-sm focus:outline-none focus:ring-0">
+                        <option value="all">All</option>
+                        <option value="confirmed">Confirmed</option>
+                        <option value="pending">Pending</option>
+                        <option value="cancelled">Cancelled</option>
+                        <option value="completed">Completed</option>
+                      </select>
+                    </div>
+                    <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">
+                      <span className="text-xs text-gray-500">Facility</span>
+                      <select value={filterFacilityId} onChange={(e) => setFilterFacilityId(e.target.value)} className="bg-transparent text-sm focus:outline-none focus:ring-0">
+                        <option value="all">All</option>
+                        {(facilities || []).map(f => (<option key={f._id} value={f._id}>{f?.name}</option>))}
+                      </select>
+                    </div>
+                    <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">
+                      <span className="text-xs text-gray-500">Date</span>
+                      <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className="bg-transparent text-sm focus:outline-none focus:ring-0" />
+                    </div>
+                    <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">
+                      <span className="text-xs text-gray-500">Type</span>
+                      <select value={filterRecurring} onChange={(e) => setFilterRecurring(e.target.value)} className="bg-transparent text-sm focus:outline-none focus:ring-0">
+                        <option value="all">All</option>
+                        <option value="recurring">Recurring</option>
+                        <option value="one-time">One-time</option>
+                      </select>
+                    </div>
+                    <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">
+                      <span className="text-xs text-gray-500">Duration</span>
+                      <select value={filterDuration} onChange={(e) => setFilterDuration(e.target.value)} className="bg-transparent text-sm focus:outline-none focus:ring-0">
+                        <option value="all">All</option>
+                        <option value="gt4h">&gt; 4h</option>
+                        <option value="lte4h">≤ 4h</option>
+                      </select>
+                    </div>
+                    {isAdmin() && (
+                      <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">
+                        <span className="text-xs text-gray-500">User</span>
+                        <select value={filterUser} onChange={(e) => setFilterUser(e.target.value)} className="bg-transparent text-sm focus:outline-none focus:ring-0">
+                          <option value="all">All</option>
+                          {(users || []).map(u => (<option key={u._id} value={u._id}>{u?.firstName} {u?.lastName}</option>))}
+                        </select>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-500">{displayBookings.length} bookings</span>
+                    {activeBookingsFilterCount > 0 && (
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">{activeBookingsFilterCount} active</span>
+                    )}
+                    <button onClick={clearBookingsFilters} className="px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50" title="Clear filters">Clear</button>
+                  </div>
+                </div>
+              </div>
+              
+              {
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-gray-200">
+                        <th className="text-left p-4 font-medium text-gray-700">Facility</th>
+                        <th className="text-left p-4 font-medium text-gray-700">Date</th>
+                        <th className="text-left p-4 font-medium text-gray-700">Time</th>
+                        <th className="text-left p-4 font-medium text-gray-700">User</th>
+                        <th className="text-left p-4 font-medium text-gray-700">Purpose</th>
+                        <th className="text-left p-4 font-medium text-gray-700">Recurring</th>
+                        <th className="text-left p-4 font-medium text-gray-700">Status</th>
+                        <th className="text-left p-4 font-medium text-gray-700">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {displayBookings.map(booking => (
+                        <tr key={booking._id} className="border-b border-gray-100 hover:bg-gray-50">
+                          <td className="p-4 font-medium">{booking.facilityName}</td>
+                          <td className="p-4">
+                            {new Date(booking.date).toLocaleDateString()}
+                            {booking.isRecurring && (
+                              <span className="ml-2 text-xs text-gray-500">
+                                (+{booking.recurrenceCount - 1} more)
+                              </span>
+                            )}
+                          </td>
+                          <td className="p-4">{booking.startTime}-{booking.endTime}</td>
+                          <td className="p-4">{booking.userName}</td>
+                          <td className="p-4">{booking.purpose}</td>
+                          <td className="p-4">
+                            {booking.isRecurring && (
+                              <div className="flex items-center space-x-1">
+                                <span 
+                                  className="text-lg font-bold text-blue-600"
+                                  title={getRecurrenceInfo(booking.recurrencePattern, booking.recurrenceCount).tooltip}
+                                >
+                                  {getRecurrenceInfo(booking.recurrencePattern, booking.recurrenceCount).symbol}
+                                </span>
+                                <span className="text-xs text-gray-500">
+                                  {booking.recurrenceCount}x
+                                </span>
+                              </div>
+                            )}
+                          </td>
+                          <td className="p-4">
+                            <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(booking.status)}`}>
+                              {booking.status}
+                            </span>
+                          </td>
+                          <td className="p-4">
+                            <div className="flex items-center space-x-2">
+                              <button className="p-1 hover:bg-gray-100 rounded" onClick={() => setSelectedBooking(booking)} title="View details">
+                                <Eye className="w-4 h-4 text-gray-600" />
+                              </button>
+                              {(isAdmin() || canEditBooking(booking)) && !isBookingPast(booking) && (
+                                <>
+                                  <button 
+                                    onClick={() => handleEditBooking(booking)}
+                                    className="p-1 hover:bg-gray-100 rounded"
+                                  >
+                                    <Edit2 className="w-4 h-4 text-gray-600" />
+                                  </button>
+                                  {isAdmin() && booking.status === 'pending' && (
+                                    <button 
+                                      onClick={() => handleVerifyBooking(booking._id)}
+                                      className="px-2 py-1 text-xs border border-green-300 text-green-700 rounded hover:bg-green-50"
+                                      title="Verify pending booking"
+                                    >
+                                      Verify
+                                    </button>
+                                  )}
+                                  <button 
+                                    onClick={() => handleDeleteBooking(booking._id)}
+                                    className="p-1 hover:bg-gray-100 rounded"
+                                  >
+                                    <Trash2 className="w-4 h-4 text-red-600" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              }
+            </div>
+          </div>
+        )}
+
         {currentView === 'timetable' && <TimetableView />}
-        {currentView === 'facilities' && <FacilitiesView />}
+
+        {/* {currentView === 'facilities' && <FacilitiesView />} */}
+        {currentView === 'facilities' && (
+          <div className="p-8">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 mb-6">
+              <div className="p-4 border-b border-gray-200">
+                <div className="flex items-center justify-between gap-4 flex-wrap">
+                  <div className="relative flex-1 min-w-[240px] max-w-lg">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
+                    <input
+                      type="text"
+                      placeholder="Search facilities..."
+                      value={facilitySearchTerm}
+                      onChange={(e) => setFacilitySearchTerm(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-full pl-3 pr-2 py-1.5">
+                      <span className="text-xs text-gray-500">Status</span>
+                      <select
+                        value={facilityStatusFilter}
+                        onChange={(e) => setFacilityStatusFilter(e.target.value)}
+                        className="bg-transparent text-sm focus:outline-none focus:ring-0"
+                      >
+                        <option value="all">All</option>
+                        <option value="open">Open</option>
+                        <option value="closed">Closed</option>
+                      </select>
+                    </div>
+                    <span className="text-sm text-gray-500">{filteredFacilitiesList.length} facilities</span>
+                    {equipmentSelected.length > 0 && (
+                      <span className="hidden sm:inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">{equipmentSelected.length} selected</span>
+                    )}
+                    {equipmentSelected.length > 0 && (
+                      <button onClick={clearEquipmentFilter} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Clear</button>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="text-sm font-semibold text-gray-700">Equipment</h4>
+                  {uniqueEquipment.length > 12 && (
+                    <button onClick={() => setShowAllEquipmentFilters(v => !v)} className="text-xs text-blue-600 hover:text-blue-700">
+                      {showAllEquipmentFilters ? 'Show less' : 'Show more'}
+                    </button>
+                  )}
+                </div>
+                <div className="flex flex-row flex-wrap gap-2 overflow-x-auto sm:overflow-visible pr-1">
+                  {uniqueEquipment.length === 0 ? (
+                    <span className="text-xs text-gray-500">No equipment found</span>
+                  ) : (
+                    (showAllEquipmentFilters ? uniqueEquipment : uniqueEquipment.slice(0, 12)).map(eq => {
+                      const selected = equipmentSelected.includes(eq);
+                      return (
+                        <button
+                          key={eq}
+                          type="button"
+                          onClick={() => toggleEquipmentFilter(eq)}
+                          className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-full text-xs border transition-colors ${selected ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}
+                          title={eq}
+                        >
+                          {selected && <span className="w-1.5 h-1.5 rounded-full bg-white"></span>}
+                          {eq}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+            {
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-gray-200">
+                        <th className="text-left p-4 font-medium text-gray-700">Facility Name</th>
+                        <th className="text-left p-4 font-medium text-gray-700">Status</th>
+                        <th className="text-left p-4 font-medium text-gray-700">Location</th>
+                        <th className="text-left p-4 font-medium text-gray-700">Equipment</th>
+                        <th className="text-left p-4 font-medium text-gray-700">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filteredFacilitiesList.map(facility => (
+                        <tr key={facility._id} className="border-b border-gray-100 hover:bg-gray-50">
+                          <td className="p-4 font-medium">{facility.name}</td>
+                          <td className="p-4">
+                            <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(facility.status)}`}>
+                              {facility.status}
+                            </span>
+                          </td>
+                          <td className="p-4 text-sm text-gray-600">
+                            {facility.location && Array.isArray(facility.location.coordinates)
+                              ? `${Number(facility.location.coordinates[1]).toFixed(6)}, ${Number(facility.location.coordinates[0]).toFixed(6)}`
+                              : '-'}
+                          </td>
+                          <td className="p-4">
+                            <div className="flex flex-wrap gap-1">
+                              {facility.equipment.slice(0, 2).map((item, index) => (
+                                <span key={index} className="text-xs text-gray-600">
+                                  {item}{index < 1 && facility.equipment.length > 1 ? ',' : ''}
+                                </span>
+                              ))}
+                              {facility.equipment.length > 2 && (
+                                <span className="text-xs text-gray-400">+{facility.equipment.length - 2} more</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="p-4">
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => setSelectedFacility(facility)}
+                                className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                                title="View details"
+                              >
+                                <Eye className="w-4 h-4 text-blue-600" />
+                              </button>
+                              {canManageFacilities() && (
+                                <>
+                                  <button
+                                    onClick={() => openEditFacility(facility)}
+                                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                                    title="Edit facility"
+                                  >
+                                    <Edit2 className="w-4 h-4 text-gray-600" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteFacility(facility._id)}
+                                    className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                                    title="Delete facility"
+                                  >
+                                    <Trash2 className="w-4 h-4 text-red-600" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            }
+          </div>
+        )
+          }
         
         {currentView === 'users' && (
           <div className="p-8">
@@ -2902,8 +2890,8 @@ const AppContent = () => {
                 <button onClick={async () => await exportAllFacilitiesAsPdf()} className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Export Combined PDF</button>
                 <select value={reportFacilityId||''} onChange={(e)=>setReportFacilityId(e.target.value)} className="px-3 py-2 border rounded text-sm">
                   <option value="">Select facility...</option>
-                  {facilities.map(f=> (
-                    <option key={f._id} value={f._id}>{f.name}</option>
+                  {(facilities || []).map(f=> (
+                    <option key={f._id} value={f._id}>{f?.name}</option>
                   ))}
                 </select>
                 <button disabled={!reportFacilityId} onClick={async ()=>{ const f= facilities.find(x=>x._id===reportFacilityId); if(f) await exportFacilityAsPdf(f); }} className={`px-3 py-2 border rounded text-sm ${reportFacilityId? 'hover:bg-gray-50' : 'opacity-50 cursor-not-allowed'}`}>Export Selected Facility</button>
@@ -2946,11 +2934,994 @@ const AppContent = () => {
         )}
       </div>
       
-      {showBookingModal && <BookingModal />}
-      {selectedFacility && <FacilityDetailModal />}
-      {selectedBooking && <BookingDetailModal />}
-      {showFacilityModal && canManageFacilities() && <FacilityModal />}
-      {showUserBookings && <UserBookingsModal />}
+      {/* {showBookingModal && <BookingModal />} */}
+      {showBookingModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-hidden">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-7xl mx-4 max-h-[95vh] overflow-hidden">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-semibold text-gray-900">
+                  {editingBooking ? 'Edit Booking' : 'Create New Booking'}
+                </h3>
+                <button
+                  onClick={() => {
+                    setShowBookingModal(false);
+                    setEditingBooking(null);
+                    setBookingForm({
+                      facility: '',
+                      hall: '',
+                      date: new Date().toISOString().split('T')[0], // Default to today
+                      startTime: '',
+                      endTime: '',
+                      purpose: '',
+                      recurring: 'none',
+                      customTimeInput: false
+                    });
+                  }}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+            </div>
+            
+            <form 
+              onSubmit={editingBooking ? handleUpdateBooking : handleBookingSubmit} 
+              className="p-6 flex gap-6"
+            >
+              {/* Left Column - Form Fields */}
+              <div className="w-80 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Facility</label>
+                  <select
+                    value={bookingForm.facility}
+                    onChange={(e) => handleFormChange('facility', e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  >
+                    <option value="">Select a facility ({(facilities || []).filter(f => (f?.status || '').toLowerCase() === 'open').length} open)</option>
+                    {(facilities || [])
+                      .filter(f => (f?.status || '').toLowerCase() === 'open')
+                      .map(facility => (
+                        <option key={facility._id} value={facility?.name}>
+                          {facility?.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                {(() => {
+                  const selectedFacility = (facilities || []).find(f => f?.name === bookingForm.facility);
+                  
+                  // Ensure facility has halls property
+                  if (!selectedFacility?.halls) {
+                    console.log('Facility missing halls property in form render, initializing...');
+                    if (selectedFacility) {
+                      selectedFacility.halls = [];
+                    }
+                  }
+                  
+                  // If facility has only 1 hall, skip status check
+                  if (selectedFacility.halls.length === 1) {
+                    const singleHall = selectedFacility.halls[0];
+                    return (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Hall</label>
+                        <div className="px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-700">
+                          {singleHall.name} (Auto-selected)
+                        </div>
+                      </div>
+                    );
+                  }
+                  
+                  // For multi-hall facilities, check hall status
+                  const openHalls = selectedFacility.halls.filter(hall => {
+                    const status = (hall.status || '').toLowerCase();
+                    return status === 'open' || status === 'available' || !status;
+                  });
+                  
+                  // Only show hall selection if there are multiple halls
+                  if (openHalls.length > 1) {
+                    return (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Hall</label>
+                        <select
+                          value={bookingForm.hall}
+                          onChange={(e) => handleFormChange('hall', e.target.value)}
+                          className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          required
+                          disabled={!bookingForm.facility}
+                        >
+                          <option value="">Select a hall</option>
+                          {openHalls.map(hall => (
+                            <option key={hall.name} value={hall.name}>
+                              {hall.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    );
+                  } else if (openHalls.length === 1) {
+                    // Show auto-selected hall info
+                    return (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Hall</label>
+                        <div className="px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-700">
+                          {openHalls[0].name} (Auto-selected)
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null; // No open halls
+                })()}
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
+                  <input
+                    type="date"
+                    value={bookingForm.date}
+                    onChange={(e) => handleFormChange('date', e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    min={new Date().toISOString().split('T')[0]}
+                    required
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Time Selection Method</label>
+                  <div className="flex items-center space-x-4 mb-2">
+                    <label className="flex items-center">
+                      <input
+                        type="radio"
+                        name="timeMethod"
+                        checked={!bookingForm.customTimeInput}
+                        onChange={() => setBookingForm(prev => ({ ...prev, customTimeInput: false, startTime: '', endTime: '' }))}
+                        className="mr-2"
+                      />
+                      <span className="text-sm">Grid Selection</span>
+                    </label>
+                    <label className="flex items-center">
+                      <input
+                        type="radio"
+                        name="timeMethod"
+                        checked={bookingForm.customTimeInput}
+                        onChange={() => setBookingForm(prev => ({ ...prev, customTimeInput: true, startTime: '', endTime: '' }))}
+                        className="mr-2"
+                      />
+                      <span className="text-sm">Custom Time</span>
+                    </label>
+                  </div>
+                </div>
+
+                {!bookingForm.customTimeInput ? (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Start Time</label>
+                      <div className="text-sm text-gray-600 mb-2">Click on available time slots below</div>
+                      <input
+                        type="text"
+                        value={bookingForm.startTime}
+                        readOnly
+                        className="w-full px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-700"
+                        placeholder="Select start time from grid"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">End Time</label>
+                      <div className="text-sm text-gray-600 mb-2">Click on available time slots below</div>
+                      <input
+                        type="text"
+                        value={bookingForm.endTime}
+                        readOnly
+                        className="w-full px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-700"
+                        placeholder="Select end time from grid"
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">Start Time</label>
+                      <div className="text-sm text-gray-600 mb-2">Enter time in HH:MM format (e.g., 10:15, 17:30)</div>
+                      <input
+                        type="text"
+                        value={bookingForm.startTime}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          // Allow HH:MM format with 15-minute intervals
+                          if (/^([0-9]|0[0-9]|1[0-9]|2[0-3]):([0-9]|0[0-9]|1[0-9]|2[0-9]|3[0-9]|4[0-9]|5[0-9])$/.test(value) || value === '') {
+                            setBookingForm(prev => ({ ...prev, startTime: value }));
+                          }
+                        }}
+                        className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="e.g., 10:15"
+                        pattern="^([0-9]|0[0-9]|1[0-9]|2[0-3]):([0-9]|0[0-9]|1[0-9]|2[0-9]|3[0-9]|4[0-9]|5[0-9])$"
+                        required
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">End Time</label>
+                      <div className="text-sm text-gray-600 mb-2">Enter time in HH:MM format (e.g., 10:45, 18:00)</div>
+                      <input
+                        type="text"
+                        value={bookingForm.endTime}
+                        onChange={(e) => {
+                          const value = e.target.value;
+                          // Allow HH:MM format with 15-minute intervals
+                          if (/^([0-9]|0[0-9]|1[0-9]|2[0-3]):([0-9]|0[0-9]|1[0-9]|2[0-9]|3[0-9]|4[0-9]|5[0-9])$/.test(value) || value === '') {
+                            setBookingForm(prev => ({ ...prev, endTime: value }));
+                          }
+                        }}
+                        className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        placeholder="e.g., 10:45"
+                        pattern="^([0-9]|0[0-9]|1[0-9]|2[0-3]):([0-9]|0[0-9]|1[0-9]|2[0-9]|3[0-9]|4[0-9]|5[0-9])$"
+                        required
+                      />
+                    </div>
+                  </>
+                )}
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Purpose</label>
+                  <input
+                    ref={purposeInputRef}
+                    type="text"
+                    value={bookingForm.purpose}
+                    onChange={(e) => handleFormChange('purpose', e.target.value)}
+                    placeholder="e.g., Basketball Training, Team Meeting"
+                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Recurring Booking</label>
+                  <select
+                    value={bookingForm.recurring}
+                    onChange={(e) => handleFormChange('recurring', e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="none">No Recurrence</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="biweekly">Bi-weekly</option>
+                    <option value="monthly">Monthly</option>
+                  </select>
+                </div>
+                
+                <div className="pt-4">
+                  <div className="text-xs text-gray-600 mb-2">
+                    Click on available (green) slots to set start time, then click another slot to set end time.
+                  </div>
+                </div>
+                
+                {/* Form Buttons */}
+                <div className="pt-6 border-t border-gray-200">
+                  <div className="flex items-center justify-end space-x-3 pt-4">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowBookingModal(false);
+                        setEditingBooking(null);
+                        setBookingForm({
+                          facility: '',
+                          date: new Date().toISOString().split('T')[0], // Default to today
+                          startTime: '',
+                          endTime: '',
+                          purpose: '',
+                          recurring: 'none'
+                        });
+                      }}
+                      className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                    >
+                      {editingBooking ? 'Update Booking' : 'Create Booking'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Right Column - Full Timetable */}
+              <div className="flex-1">
+                <label className="block text-sm font-medium text-gray-700 mb-3">Available Time Slots</label>
+                <div className="bg-gray-50 rounded-lg p-4">
+                  {(() => {
+                    const selectedFacility = (facilities || []).find(f => f?.name === bookingForm.facility);
+                    if (!selectedFacility) return <div className="text-gray-500 text-center py-4">Select a facility first</div>;
+                    
+                    const days = [
+                      { key: 'monday', label: 'Mon' },
+                      { key: 'tuesday', label: 'Tue' },
+                      { key: 'wednesday', label: 'Wed' },
+                      { key: 'thursday', label: 'Thu' },
+                      { key: 'friday', label: 'Fri' },
+                      { key: 'saturday', label: 'Sat' },
+                      { key: 'sunday', label: 'Sun' },
+                    ];
+                    
+                    const slots = Array.from({ length: 30 }, (_, i) => {
+                      const hour = 7 + Math.floor(i / 2);
+                      const minute = i % 2 === 0 ? '00' : '30';
+                      return `${String(hour).padStart(2, '0')}:${minute}`;
+                    });
+                    
+                    const getDayFromDate = (dateStr) => {
+                      const date = new Date(dateStr);
+                      const dayIndex = (date.getDay() + 6) % 7; // Convert to Monday=0 format
+                      return days[dayIndex].key;
+                    };
+                    
+                    const selectedDay = getDayFromDate(bookingForm.date);
+                    
+                    const isSlotAvailable = (day, slotIdx) => {
+                      // Get the selected hall's opening hours, fall back to facility default
+                      const selectedHall = selectedFacility?.halls?.find(h => h?.name === bookingForm.hall);
+                      const dayGrid = selectedHall?.openingHoursGrid?.[day] || selectedFacility?.openingHoursGrid?.[day];
+                      return dayGrid?.[slotIdx] !== false;
+                    };
+                    
+                    const handleSlotClick = (day, slotIdx, time, event) => {
+                      if (!isSlotAvailable(day, slotIdx)) return;
+                      
+                      // Prevent default behavior and stop propagation
+                      event.preventDefault();
+                      event.stopPropagation();
+                      
+                      if (!bookingForm.startTime) {
+                        // Set start time
+                        setBookingForm(prev => ({ ...prev, startTime: time }));
+                      } else if (!bookingForm.endTime) {
+                        // Set end time - must be after start time
+                        const startIdx = slots.indexOf(bookingForm.startTime);
+                        if (slotIdx > startIdx) {
+                          setBookingForm(prev => ({ ...prev, endTime: time }));
+                        }
+                      } else {
+                        // Reset and set new start time
+                        setBookingForm(prev => ({ ...prev, startTime: time, endTime: '' }));
+                      }
+                    };
+                    
+                    const isSlotSelected = (time) => {
+                      return time === bookingForm.startTime || time === bookingForm.endTime;
+                    };
+                    
+                    const isSlotInRange = (time) => {
+                      if (!bookingForm.startTime || !bookingForm.endTime) return false;
+                      const startIdx = slots.indexOf(bookingForm.startTime);
+                      const endIdx = slots.indexOf(bookingForm.endTime);
+                      const currentIdx = slots.indexOf(time);
+                      return currentIdx >= startIdx && currentIdx <= endIdx;
+                    };
+
+                    // Convert custom time to grid slot index for visualization
+                    const timeToGridSlot = (time) => {
+                      if (!time) return -1;
+                      const [hours, minutes] = time.split(':').map(Number);
+                      const totalMinutes = hours * 60 + minutes;
+                      const slotIndex = Math.floor((totalMinutes - 420) / 30); // 420 = 7:00 in minutes
+                      return Math.max(0, Math.min(29, slotIndex)); // Clamp to 0-29 range
+                    };
+
+                    // Check if a time slot should be highlighted based on custom time input
+                    const isSlotInCustomTimeRange = (time, dayKey) => {
+                      if (!bookingForm.customTimeInput || !bookingForm.startTime || !bookingForm.endTime || dayKey !== selectedDay) {
+                        return false;
+                      }
+                      
+                      const startSlot = timeToGridSlot(bookingForm.startTime);
+                      const endSlot = timeToGridSlot(bookingForm.endTime);
+                      
+                      if (startSlot === -1 || endSlot === -1) return false;
+                      
+                      const currentSlot = timeToGridSlot(time);
+                      return currentSlot >= startSlot && currentSlot < endSlot;
+                    };
+                    
+                    return (
+                      <div>
+                        {/* Grid Legend */}
+                        <div className="mb-3 p-3 bg-gray-50 rounded-lg">
+                          <div className="text-xs font-medium text-gray-700 mb-2">Grid Legend:</div>
+                          <div className="flex flex-wrap gap-4 text-xs">
+                            <div className="flex items-center space-x-2">
+                              <div className="w-3 h-3 bg-green-200 rounded"></div>
+                              <span className="text-gray-600">Available</span>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <div className="w-3 h-3 bg-red-200 rounded"></div>
+                              <span className="text-gray-600">Closed</span>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <div className="w-3 h-3 bg-blue-500 rounded"></div>
+                              <span className="text-gray-600">Selected</span>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <div className="w-3 h-3 bg-blue-200 rounded"></div>
+                              <span className="text-gray-600">Grid Range</span>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                              <div className="w-3 h-3 bg-purple-300 rounded"></div>
+                              <span className="text-gray-600">Custom Time Range</span>
+                            </div>
+                          </div>
+                        </div>
+                        
+                        <div className="grid grid-cols-8 gap-1 text-xs mb-2">
+                          <div className="font-medium text-gray-700">Time</div>
+                          {days.map(d => (
+                            <div key={d.key} className="font-medium text-gray-700 text-center">{d.label}</div>
+                          ))}
+                        </div>
+                        {slots.map((time, slotIdx) => (
+                          <div key={time} className="grid grid-cols-8 gap-1 items-center mb-1">
+                            <div className="text-gray-600 w-16 text-xs">{time}</div>
+                            {days.map(d => {
+                              const dayKey = d.key;
+                              const isAvailable = isSlotAvailable(dayKey, slotIdx);
+                              const isSelected = isSlotSelected(time) && dayKey === selectedDay;
+                              const isInRange = isSlotInRange(time) && dayKey === selectedDay;
+                              const isCustomTimeRange = isSlotInCustomTimeRange(time, dayKey);
+                              const isSelectedDay = dayKey === selectedDay;
+                              
+                              let bgColor = 'bg-gray-200';
+                              if (isSelected) bgColor = 'bg-blue-500';
+                              else if (isCustomTimeRange) bgColor = 'bg-purple-300'; // Custom time range
+                              else if (isInRange) bgColor = 'bg-blue-200';
+                              else if (isAvailable) bgColor = 'bg-green-200';
+                              else bgColor = 'bg-red-200';
+                              
+                              return (
+                                <button
+                                  key={`${dayKey}-${slotIdx}`}
+                                  type="button"
+                                  disabled={!isAvailable || !isSelectedDay}
+                                  className={`h-6 rounded transition-colors text-xs ${bgColor} ${
+                                    isAvailable && isSelectedDay ? 'hover:opacity-80 cursor-pointer' : 'cursor-not-allowed'
+                                  } ${!isSelectedDay ? 'blur-[0.5px] opacity-30' : ''}`}
+                                  onClick={(e) => isSelectedDay && handleSlotClick(dayKey, slotIdx, time, e)}
+                                  title={`${d.label} ${time} ${isAvailable ? 'Available' : 'Closed'}${!isSelectedDay ? ' (not selected day)' : ''}`}
+                                />
+                              );
+                            })}
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* {selectedFacility && <FacilityDetailModal />} */}
+      {selectedFacility && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-hidden">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-semibold text-gray-900">{selectedFacility.name}</h3>
+                <button
+                  onClick={() => setSelectedFacility(null)}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+            </div>
+            
+            <div className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700 mb-3">Facility Information</h4>
+                  <div className="space-y-3">
+                    <div className="flex items-center justify-between py-2 border-b border-gray-100">
+                      <span className="text-sm text-gray-600">Status</span>
+                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(selectedFacility.status)}`}>
+                        {selectedFacility.status}
+                      </span>
+                    </div>
+                    <div className="pt-2">
+                      <h5 className="text-xs font-semibold text-gray-600 mb-2">Opening times</h5>
+                      <div className="grid grid-cols-2 gap-y-1 text-sm">
+                        <span className="text-gray-500">Mon</span>
+                        <span className="text-gray-900">{getOpeningTimeRangesForDay(selectedFacility.openingHoursGrid, 'monday')}</span>
+                        <span className="text-gray-500">Tue</span>
+                        <span className="text-gray-900">{getOpeningTimeRangesForDay(selectedFacility.openingHoursGrid, 'tuesday')}</span>
+                        <span className="text-gray-500">Wed</span>
+                        <span className="text-gray-900">{getOpeningTimeRangesForDay(selectedFacility.openingHoursGrid, 'wednesday')}</span>
+                        <span className="text-gray-500">Thu</span>
+                        <span className="text-gray-900">{getOpeningTimeRangesForDay(selectedFacility.openingHoursGrid, 'thursday')}</span>
+                        <span className="text-gray-500">Fri</span>
+                        <span className="text-gray-900">{getOpeningTimeRangesForDay(selectedFacility.openingHoursGrid, 'friday')}</span>
+                        <span className="text-gray-500">Sat</span>
+                        <span className="text-gray-900">{getOpeningTimeRangesForDay(selectedFacility.openingHoursGrid, 'saturday')}</span>
+                        <span className="text-gray-500">Sun</span>
+                        <span className="text-gray-900">{getOpeningTimeRangesForDay(selectedFacility.openingHoursGrid, 'sunday')}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700 mb-3">Halls</h4>
+                  <div className="space-y-3">
+                    {(selectedFacility.halls || []).map((hall, index) => (
+                      <div key={index} className="border border-gray-200 rounded-lg p-3">
+                        <div className="flex items-center justify-between mb-2">
+                          <h5 className="font-medium text-gray-900">{hall.name || 'Unnamed Hall'}</h5>
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                            (hall.status || 'open') === 'open' ? 'bg-green-100 text-green-800' : 
+                            (hall.status || 'open') === 'maintenance' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'
+                          }`}>
+                            {hall.status || 'open'}
+                          </span>
+                        </div>
+                                                  
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700 mb-3">Available Equipment</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {(selectedFacility.equipment || []).map((item, index) => (
+                                              <span key={index} className="px-3 py-1 bg-blue-50 text-blue-700 rounded-lg text-sm">
+                          {item || 'Unnamed Equipment'}
+                        </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              
+              <div>
+                <h4 className="text-sm font-medium text-gray-700 mb-3">Weekly Schedule</h4>
+                <div className="overflow-x-auto">
+                  <div className="min-w-max">
+                    <OpeningHoursGrid
+                      grid={selectedFacility.openingHoursGrid}
+                      readOnly
+                      facility={selectedFacility}
+                    />
+                  </div>
+                </div>
+                
+                {/* Color Legend */}
+                <div className="mt-4 flex items-center space-x-6 text-sm">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-4 h-4 bg-green-200 rounded"></div>
+                    <span className="text-gray-600">Available</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-4 h-4 bg-orange-400 rounded"></div>
+                    <span className="text-gray-600">Booked</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-4 h-4 bg-red-200 rounded"></div>
+                    <span className="text-gray-600">Closed</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="mt-6 flex items-center justify-end space-x-3">
+                {selectedFacility.status === 'open' ? (
+                  <button
+                    onClick={() => {
+                      setSelectedFacility(null);
+                      setShowBookingModal(true);
+                      setBookingForm({...bookingForm, facility: selectedFacility.name});
+                    }}
+                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    Book This Facility
+                  </button>
+                ) : (
+                  <div className="text-sm text-red-600 font-medium">Facility is closed</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* {selectedBooking && <BookingDetailModal />} */}
+      {selectedBooking && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-hidden">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-semibold text-gray-900">Booking Details</h3>
+                <button
+                  onClick={() => setSelectedBooking(null)}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <p className="text-xs text-gray-500">Facility</p>
+                  <p className="text-sm font-medium text-gray-900">{selectedBooking.facilityName}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Hall</p>
+                  <p className="text-sm font-medium text-gray-900">{selectedBooking.hall || 'Main Hall'}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Date</p>
+                  <p className="text-sm font-medium text-gray-900">{new Date(selectedBooking.date).toLocaleDateString()}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Time</p>
+                  <p className="text-sm font-medium text-gray-900">{selectedBooking.startTime}-{selectedBooking.endTime}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Booked By</p>
+                  <p className="text-sm font-medium text-gray-900">{selectedBooking.userName}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Status</p>
+                  <span className={`inline-block mt-1 px-3 py-1 rounded-full text-xs font-medium ${getStatusColor(selectedBooking.status)}`}>
+                    {selectedBooking.status}
+                  </span>
+                </div>
+                <div>
+                  <p className="text-xs text-gray-500">Recurring</p>
+                  <p className="text-sm font-medium text-gray-900 capitalize">{selectedBooking.recurring && selectedBooking.recurring !== 'none' ? selectedBooking.recurring : 'none'}</p>
+                </div>
+              </div>
+              {selectedBooking.purpose && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Purpose</p>
+                  <p className="text-sm text-gray-900">{selectedBooking.purpose}</p>
+                </div>
+              )}
+              {selectedBooking.notes && (
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">Notes</p>
+                  <p className="text-sm text-gray-900">{selectedBooking.notes}</p>
+                </div>
+              )}
+              
+              <div className="flex items-center justify-end gap-2 pt-2">
+                {(isAdmin() || canEditBooking(selectedBooking)) && !isBookingPast(selectedBooking) && (
+                  <>
+                    <button
+                      onClick={() => { handleEditBooking(selectedBooking); setSelectedBooking(null); }}
+                      className="px-4 py-2 border border-gray-300 rounded-lg text-sm hover:bg-gray-50"
+                      title="Edit booking"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => { handleDeleteBooking(selectedBooking._id); setSelectedBooking(null); }}
+                      className="px-4 py-2 border border-red-300 text-red-600 rounded-lg text-sm hover:bg-red-50"
+                      title="Delete booking"
+                    >
+                      Delete
+                    </button>
+                  </>
+                )}
+                <button
+                  onClick={() => setSelectedBooking(null)}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm hover:bg-blue-700"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* {showFacilityModal && canManageFacilities() && <FacilityModal />} */}
+      {showFacilityModal && canManageFacilities() && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-hidden">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-7xl mx-4 max-h-[95vh] overflow-hidden flex flex-col">
+            <div className="p-6 border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xl font-semibold text-gray-900">
+                  {editingFacility ? 'Edit Facility' : 'Add New Facility'}
+                </h3>
+                <button
+                  onClick={() => { setShowFacilityModal(false); setEditingFacility(null); }}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+            </div>
+            <form onSubmit={handleSaveFacility} className="p-6 flex gap-6 flex-1 min-h-0">
+              {/* Left Column - Form Fields */}
+              <div className="w-80 flex-shrink-0 flex flex-col">
+                {/* Scrollable Content */}
+                <div className="flex-1 space-y-6 overflow-y-auto max-h-[70vh] pr-2">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Name</label>
+                  <input
+                    type="text"
+                    value={facilityForm.name}
+                    onChange={(e) => {
+                      // Only update the name field in the form, do not close modal or change view
+                      handleFacilityChange('name', e.target.value);
+                    }}
+                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                  <select
+                    value={facilityForm.status}
+                    onChange={(e) => handleFacilityChange('status', e.target.value)}
+                    className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="open">Open</option>
+                    <option value="closed">Closed</option>
+                  </select>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Location (decimal degrees, optional)</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      type="number"
+                      step="0.000001"
+                      min="-90"
+                      max="90"
+                      placeholder="Latitude (°)"
+                      value={facilityForm.locationLatitude}
+                      onChange={(e) => handleFacilityChange('locationLatitude', e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    <input
+                      type="number"
+                      step="0.000001"
+                      min="-180"
+                      max="180"
+                      placeholder="Longitude (°)"
+                      value={facilityForm.locationLongitude}
+                      onChange={(e) => handleFacilityChange('locationLongitude', e.target.value)}
+                      className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <p className="mt-1 text-xs text-gray-500">Enter as latitude, longitude (e.g. 48.775800, 9.182900). Internally saved as [lon, lat].</p>
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Equipment</label>
+                  <div className="space-y-2">
+                    {facilityForm.equipmentList.map((item, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={item}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            setFacilityForm(prev => ({
+                              ...prev,
+                              equipmentList: prev.equipmentList.map((it, i) => i === idx ? value : it)
+                            }));
+                          }}
+                          className="flex-1 px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          placeholder="e.g., Projector"
+                        />
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setFacilityForm(prev => ({
+                              ...prev,
+                              equipmentList: prev.equipmentList.filter((_, i) => i !== idx)
+                            }));
+                          }}
+                          className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+                          aria-label="Remove equipment"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setFacilityForm(prev => ({ ...prev, equipmentList: [...prev.equipmentList, ''] }));
+                      }}
+                      className="mt-2 inline-flex items-center gap-2 px-4 py-2 bg-gray-100 rounded-lg hover:bg-gray-200 text-sm"
+                    >
+                      + Add Equipment
+                    </button>
+                  </div>
+                </div>
+
+                {/* Halls Management */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Halls</label>
+                  <div className="space-y-3">
+                    {(facilityForm.halls || []).map((hall, hallIdx) => (
+                      <div key={hallIdx} className="border border-gray-200 rounded-lg p-3 bg-gray-50">
+                        <div className="grid grid-cols-2 gap-2 mb-2">
+                          <input
+                            type="text"
+                            value={hall.name || ''}
+                            onChange={(e) => {
+                              setFacilityForm(prev => ({
+                                ...prev,
+                                halls: (prev.halls || []).map((h, i) => 
+                                  i === hallIdx ? { ...h, name: e.target.value } : h
+                                )
+                              }));
+                            }}
+                            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            placeholder="Hall name"
+                          />
+                          <select
+                            value={hall.status || 'open'}
+                            onChange={(e) => {
+                              setFacilityForm(prev => ({
+                                ...prev,
+                                halls: (prev.halls || []).map((h, i) => 
+                                  i === hallIdx ? { ...h, status: e.target.value } : h
+                                )
+                              }));
+                            }}
+                            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            <option value="open">Open</option>
+                            <option value="closed">Closed</option>
+                            <option value="maintenance">Maintenance</option>
+                          </select>
+                        </div>
+                        
+                        <div className="mb-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFacilityForm(prev => ({
+                                ...prev,
+                                halls: (prev.halls || []).filter((_, i) => i !== hallIdx)
+                              }));
+                            }}
+                            disabled={(facilityForm.halls || []).length === 1}
+                            className="w-full px-3 py-2 text-sm border border-red-300 rounded-lg hover:bg-red-50 text-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            Remove Hall
+                          </button>
+                        </div>
+
+
+                      </div>
+                    ))}
+                    
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setFacilityForm(prev => ({
+                          ...prev,
+                          halls: [...(prev.halls || []), {
+                            name: `Hall ${(prev.halls || []).length + 1}`,
+                            status: 'open',
+                            openingHoursGrid: generateDefaultOpeningGrid()
+                          }]
+                        }));
+                      }}
+                      className="w-full px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 text-sm"
+                    >
+                      + Add Hall
+                    </button>
+                  </div>
+                </div>
+              </div>
+                
+                {/* Fixed Form Buttons - Always Visible */}
+                <div className="sticky bottom-0 bg-white border-t border-gray-200 p-4 mt-6">
+                  <div className="flex items-center justify-end gap-3">
+                    <button
+                      type="button"
+                      onClick={() => { setShowFacilityModal(false); setEditingFacility(null); }}
+                      className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
+                    >
+                      Save
+                    </button>
+                  </div>
+                </div>
+              </div>
+              
+              {/* Right Column - Full Timetable */}
+              <div className="flex-1 min-w-0 flex flex-col">
+                <h4 className="text-sm font-medium text-gray-700 mb-3">Weekly Schedule</h4>
+                <div className="bg-gray-50 rounded-lg p-3 overflow-x-auto">
+                  <div className="min-w-max">
+                    <OpeningHoursGrid
+                      grid={facilityForm.openingHoursGrid}
+                      onToggle={(day, idx) => {
+                        setFacilityForm(prev => ({
+                          ...prev,
+                          openingHoursGrid: {
+                            ...prev.openingHoursGrid,
+                            [day]: prev.openingHoursGrid[day].map((v, i) => i === idx ? !v : v)
+                          }
+                        }));
+                      }}
+                      facility={editingFacility}
+                    />
+                  </div>
+                </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* might be incorrect, may revert back to original */}
+      {/* {showUserBookings && <UserBookingsModal />}  */}
+      {showUserBookings && selectedUser ? (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl mx-4 max-h-[85vh] overflow-y-auto">
+              <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+                <h3 className="text-xl font-semibold text-gray-900">{selectedUser.firstName} {selectedUser.lastName} • Previous Bookings</h3>
+                <button
+                  onClick={() => { setShowUserBookings(false); setSelectedUser(null); }}
+                  className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
+                >
+                  <X className="w-5 h-5 text-gray-500" />
+                </button>
+              </div>
+              <div className="p-6">
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b border-gray-200 bg-gray-50">
+                        <th className="text-left p-3 text-sm font-medium text-gray-700">Date</th>
+                        <th className="text-left p-3 text-sm font-medium text-gray-700">Facility</th>
+                        <th className="text-left p-3 text-sm font-medium text-gray-700">Time</th>
+                        <th className="text-left p-3 text-sm font-medium text-gray-700">Purpose</th>
+                        <th className="text-left p-3 text-sm font-medium text-gray-700">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bookings
+                        .filter(b => b.user === selectedUser._id)
+                        .sort((a, b) => new Date(b.date) - new Date(a.date))
+                        .map(b => (
+                          <tr key={b._id} className="border-b border-gray-100">
+                            <td className="p-3 text-sm">{new Date(b.date).toLocaleDateString()}</td>
+                            <td className="p-3 text-sm">{b.facilityName}</td>
+                            <td className="p-3 text-sm">{b.startTime}-{b.endTime}</td>
+                            <td className="p-3 text-sm">{b.purpose}</td>
+                            <td className="p-3 text-sm">
+                              <span className={`px-2 py-0.5 rounded-full text-xs ${getStatusColor(b.status)}`}>{b.status}</span>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null
+      }
+
       
       {/* Toast Container */}
       <ToastContainer toasts={toasts} removeToast={removeToast} />

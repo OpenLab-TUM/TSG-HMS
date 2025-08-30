@@ -10,6 +10,12 @@ const bookingSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  // New field for specific hall within the facility
+  hall: {
+    type: String,
+    required: true,
+    trim: true
+  },
   date: {
     type: Date,
     required: true
@@ -58,8 +64,8 @@ const bookingSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Index for efficient queries
-bookingSchema.index({ facility: 1, date: 1, startTime: 1 });
+// Index for efficient queries - updated to include hall
+bookingSchema.index({ facility: 1, hall: 1, date: 1, startTime: 1 });
 bookingSchema.index({ user: 1, date: 1 });
 
 module.exports = mongoose.model('Booking', bookingSchema);

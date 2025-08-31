@@ -94,14 +94,35 @@ const AppContent = () => {
 
   // Utility to build a default opening-hours grid (07:00-22:00 half-hours)
   function generateDefaultOpeningGrid() {
+    // Create a more realistic default: closed before 7:00 AM and after 10:00 PM
+    // Also closed on Sundays, and shorter hours on weekends
+    const createDayGrid = (isWeekend = false, isSunday = false) => {
+      const grid = Array(31).fill(false); // Start with all closed (7:00 AM to 22:00)
+      
+      if (isSunday) {
+        // Sunday: closed
+        return grid;
+      }
+      
+      // Set opening hours: 7:00 AM to 10:00 PM (or 8:00 PM on weekends)
+      const startSlot = 0; // 7:00 AM
+      const endSlot = isWeekend ? 26 : 30; // 8:00 PM on weekends, 10:00 PM on weekdays (22:00)
+      
+      for (let i = startSlot; i < endSlot; i++) {
+        grid[i] = true; // Open
+      }
+      
+      return grid;
+    };
+    
     return {
-      monday: Array(30).fill(true),
-      tuesday: Array(30).fill(true),
-      wednesday: Array(30).fill(true),
-      thursday: Array(30).fill(true),
-      friday: Array(30).fill(true),
-      saturday: Array(30).fill(true),
-      sunday: Array(30).fill(true)
+      monday: createDayGrid(false), // Weekday: 7:00 AM - 10:00 PM
+      tuesday: createDayGrid(false), // Weekday: 7:00 AM - 10:00 PM
+      wednesday: createDayGrid(false), // Weekday: 7:00 AM - 10:00 PM
+      thursday: createDayGrid(false), // Weekday: 7:00 AM - 10:00 PM
+      friday: createDayGrid(false), // Weekday: 7:00 AM - 10:00 PM
+      saturday: createDayGrid(true), // Weekend: 7:00 AM - 8:00 PM
+      sunday: createDayGrid(false, true) // Sunday: Closed
     };
   }
 
@@ -123,11 +144,14 @@ const AppContent = () => {
         // Ensure all facilities have halls property
         const normalizedFacilities = (facilitiesData || []).map(facility => ({
           ...facility,
+          // Preserve the facility's original opening hours
+          openingHoursGrid: facility?.openingHoursGrid || generateDefaultOpeningGrid(),
           halls: Array.isArray(facility?.halls) && facility.halls.length > 0 
             ? facility.halls 
             : [{
                 name: 'Main Hall',
                 status: 'open',
+                // Use facility's opening hours for the default hall, not generate new ones
                 openingHoursGrid: facility?.openingHoursGrid || generateDefaultOpeningGrid()
               }]
         }));
@@ -146,14 +170,32 @@ const AppContent = () => {
     fetchData();
   }, [user]);
 
-  // Focus purpose input when modal opens
+  // Focus purpose input when modal opens and ensure form is properly initialized
   useEffect(() => {
-    if (showBookingModal && purposeInputRef.current) {
-      setTimeout(() => {
-        purposeInputRef.current?.focus();
-      }, 100);
+    if (showBookingModal) {
+      // Ensure the booking form has proper default values if it's empty
+      if (!bookingForm.facility && !editingBooking) {
+        setBookingForm(prev => ({
+          ...prev,
+          facility: '',
+          hall: '',
+          date: new Date().toISOString().split('T')[0], // Default to today
+          startTime: '',
+          endTime: '',
+          purpose: '',
+          recurring: 'none',
+          customTimeInput: false
+        }));
+      }
+      
+      // Focus purpose input if available
+      if (purposeInputRef.current) {
+        setTimeout(() => {
+          purposeInputRef.current?.focus();
+        }, 100);
+      }
     }
-  }, [showBookingModal]);
+  }, [showBookingModal, editingBooking]);
 
 
 
@@ -171,11 +213,14 @@ const AppContent = () => {
       // Ensure all facilities have halls property
       const normalizedFacilities = (facilitiesData || []).map(facility => ({
         ...facility,
+        // Preserve the facility's original opening hours
+        openingHoursGrid: facility?.openingHoursGrid || generateDefaultOpeningGrid(),
         halls: Array.isArray(facility?.halls) && facility.halls.length > 0 
           ? facility.halls 
           : [{
               name: 'Main Hall',
               status: 'open',
+              // Use facility's opening hours for the default hall, not generate new ones
               openingHoursGrid: facility?.openingHoursGrid || generateDefaultOpeningGrid()
             }]
       }));
@@ -291,13 +336,23 @@ const AppContent = () => {
   // Handle verify booking (admin)
   const handleVerifyBooking = async (bookingId) => {
     try {
-            await api.verifyBooking(bookingId);
+      const result = await api.verifyBooking(bookingId);
       await refreshData();
-      showSuccess('Booking verified successfully');
-    } catch (error) {
-        console.error('Error verifying booking:', error);
-        showError('Failed to verify booking: ' + error.message);
+      
+      // Show appropriate success message based on the result
+      if (result.verifiedCount && result.verifiedCount > 1) {
+        // This was a recurring booking series
+        const firstDate = new Date(result.firstVerifiedDate).toLocaleDateString();
+        const lastDate = new Date(result.lastVerifiedDate).toLocaleDateString();
+        showSuccess(`${result.message} (${firstDate} to ${lastDate})`);
+      } else {
+        // Single booking
+        showSuccess('Booking verified successfully');
       }
+    } catch (error) {
+      console.error('Error verifying booking:', error);
+      showError('Failed to verify booking: ' + error.message);
+    }
   };
 
   // Handle form field changes - use callback to prevent unnecessary re-renders
@@ -386,7 +441,7 @@ const AppContent = () => {
             facility.halls = [{
               name: 'Main Hall',
               status: 'open',
-              openingHoursGrid: facility?.openingHoursGrid || Array(30).fill(true)
+              openingHoursGrid: facility?.openingHoursGrid || Array(31).fill(true)
             }];
           }
           console.log('Fallback hall created:', facility?.halls);
@@ -1190,7 +1245,7 @@ const AppContent = () => {
   };
 
   const UtilizationChart = ({ facilities, bookings, type = 'bar' }) => {
-    const labels = Array.from({ length: 17 }, (_, i) => `${String(6 + i).padStart(2, '0')}:00`); // 06..22
+    const labels = Array.from({ length: 18 }, (_, i) => `${String(6 + i).padStart(2, '0')}:00`); // 06..23
     const computeSeries = (fac) => labels.map((label) => {
       const hour = parseInt(label.split(':')[0], 10);
       let minutes = 0;
@@ -1292,7 +1347,7 @@ const AppContent = () => {
       { key: 'saturday', label: 'Sat' },
       { key: 'sunday', label: 'Sun' },
     ];
-    const slots = Array.from({ length: 30 }, (_, i) => {
+    const slots = Array.from({ length: 31 }, (_, i) => {
       const hour = 7 + Math.floor(i / 2);
       const minute = i % 2 === 0 ? '00' : '30';
       return `${String(hour).padStart(2, '0')}:${minute}`;
@@ -1358,7 +1413,7 @@ const AppContent = () => {
 
   // Format opening times per day from openingHoursGrid
   const getOpeningTimeRangesForDay = (grid, dayKey) => {
-    const slots = Array.from({ length: 30 }, (_, i) => i); // 0..29 (07:00 .. 21:30)
+    const slots = Array.from({ length: 31 }, (_, i) => i); // 0..30 (07:00 .. 22:00)
     const isOpenAt = (idx) => grid?.[dayKey]?.[idx] !== false;
 
     const toTimeString = (idx) => {
@@ -1382,8 +1437,8 @@ const AppContent = () => {
       }
     });
     if (currentStart !== null) {
-      // open until the end (22:00 -> idx 30)
-      ranges.push({ start: currentStart, end: 30 });
+      // open until the end (22:00 -> idx 31)
+      ranges.push({ start: currentStart, end: 31 });
     }
 
     if (ranges.length === 0) return 'Closed';
@@ -1568,7 +1623,20 @@ const AppContent = () => {
         {/* Removed list/grid toggle */}
         
         <button
-          onClick={() => setShowBookingModal(true)}
+          onClick={() => {
+            // Reset the booking form when opening from header
+            setBookingForm({
+              facility: '',
+              hall: '',
+              date: new Date().toISOString().split('T')[0], // Default to today
+              startTime: '',
+              endTime: '',
+              purpose: '',
+              recurring: 'none',
+              customTimeInput: false
+            });
+            setShowBookingModal(true);
+          }}
           className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
         >
           <Plus className="w-4 h-4" />
@@ -2527,6 +2595,11 @@ const AppContent = () => {
                                 <span className="text-xs text-gray-500">
                                   {booking.recurrenceCount}x
                                 </span>
+                                {booking.status === 'pending' && (
+                                  <span className="ml-1 text-xs text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded-full">
+                                    Verify Series
+                                  </span>
+                                )}
                               </div>
                             )}
                           </td>
@@ -2552,9 +2625,13 @@ const AppContent = () => {
                                     <button 
                                       onClick={() => handleVerifyBooking(booking._id)}
                                       className="px-2 py-1 text-xs border border-green-300 text-green-700 rounded hover:bg-green-50"
-                                      title="Verify pending booking"
+                                      title={
+                                        booking.isRecurring 
+                                          ? `Verify entire recurring series (${booking.recurrenceCount} bookings) - will verify earliest to latest`
+                                          : "Verify pending booking"
+                                      }
                                     >
-                                      Verify
+                                      {booking.isRecurring ? `Verify Series` : `Verify`}
                                     </button>
                                   )}
                                   <button 
@@ -2928,7 +3005,20 @@ const AppContent = () => {
               bookings={bookings}
               onFacilityClick={setSelectedFacility}
               onBookingClick={(booking) => console.log(booking)}
-              onNewBooking={() => setShowBookingModal(true)}
+              onNewBooking={() => {
+                // Reset the booking form when opening from map view
+                setBookingForm({
+                  facility: '',
+                  hall: '',
+                  date: new Date().toISOString().split('T')[0], // Default to today
+                  startTime: '',
+                  endTime: '',
+                  purpose: '',
+                  recurring: 'none',
+                  customTimeInput: false
+                });
+                setShowBookingModal(true);
+              }}
             />
           </div>
         )}
@@ -2992,6 +3082,18 @@ const AppContent = () => {
 
                 {(() => {
                   const selectedFacility = (facilities || []).find(f => f?.name === bookingForm.facility);
+                  
+                  // If no facility is selected yet, don't render hall section
+                  if (!selectedFacility) {
+                    return (
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">Hall</label>
+                        <div className="px-4 py-2 bg-gray-50 border border-gray-200 rounded-lg text-gray-500">
+                          Please select a facility first
+                        </div>
+                      </div>
+                    );
+                  }
                   
                   // Ensure facility has halls property
                   if (!selectedFacility?.halls) {
@@ -3123,42 +3225,60 @@ const AppContent = () => {
                   <>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">Start Time</label>
-                      <div className="text-sm text-gray-600 mb-2">Enter time in HH:MM format (e.g., 10:15, 17:30)</div>
+                      <div className="text-sm text-gray-600 mb-2">Enter time in HH:MM format (e.g., 10:15, 17:30, 14:07)</div>
                       <input
                         type="text"
                         value={bookingForm.startTime}
                         onChange={(e) => {
                           const value = e.target.value;
-                          // Allow HH:MM format with 15-minute intervals
-                          if (/^([0-9]|0[0-9]|1[0-9]|2[0-3]):([0-9]|0[0-9]|1[0-9]|2[0-9]|3[0-9]|4[0-9]|5[0-9])$/.test(value) || value === '') {
-                            setBookingForm(prev => ({ ...prev, startTime: value }));
+                          // Allow typing freely, validate on blur or submit
+                          setBookingForm(prev => ({ ...prev, startTime: value }));
+                        }}
+                        onBlur={(e) => {
+                          // Validate format when user finishes typing
+                          const value = e.target.value;
+                          if (value && !/^([0-9]|0[0-9]|1[0-9]|2[0-3]):([0-9]|0[0-9]|1[0-9]|2[0-9]|3[0-9]|4[0-9]|5[0-9])$/.test(value)) {
+                            e.target.classList.add('border-red-500');
+                          } else {
+                            e.target.classList.remove('border-red-500');
                           }
                         }}
                         className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                         placeholder="e.g., 10:15"
-                        pattern="^([0-9]|0[0-9]|1[0-9]|2[0-3]):([0-9]|0[0-9]|1[0-9]|2[0-9]|3[0-9]|4[0-9]|5[0-9])$"
                         required
                       />
+                      {bookingForm.startTime && !/^([0-9]|0[0-9]|1[0-9]|2[0-3]):([0-9]|0[0-9]|1[0-9]|2[0-9]|3[0-9]|4[0-9]|5[0-9])$/.test(bookingForm.startTime) && (
+                        <p className="text-xs text-red-500 mt-1">Please use HH:MM format (e.g., 14:07)</p>
+                      )}
                     </div>
                     
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">End Time</label>
-                      <div className="text-sm text-gray-600 mb-2">Enter time in HH:MM format (e.g., 10:45, 18:00)</div>
+                      <div className="text-sm text-gray-600 mb-2">Enter time in HH:MM format (e.g., 10:45, 18:00, 14:37)</div>
                       <input
                         type="text"
                         value={bookingForm.endTime}
                         onChange={(e) => {
                           const value = e.target.value;
-                          // Allow HH:MM format with 15-minute intervals
-                          if (/^([0-9]|0[0-9]|1[0-9]|2[0-3]):([0-9]|0[0-9]|1[0-9]|2[0-9]|3[0-9]|4[0-9]|5[0-9])$/.test(value) || value === '') {
-                            setBookingForm(prev => ({ ...prev, endTime: value }));
+                          // Allow typing freely, validate on blur or submit
+                          setBookingForm(prev => ({ ...prev, endTime: value }));
+                        }}
+                        onBlur={(e) => {
+                          // Validate format when user finishes typing
+                          const value = e.target.value;
+                          if (value && !/^([0-9]|0[0-9]|1[0-9]|2[0-3]):([0-9]|0[0-9]|1[0-9]|2[0-9]|3[0-9]|4[0-9]|5[0-9])$/.test(value)) {
+                            e.target.classList.add('border-red-500');
+                          } else {
+                            e.target.classList.remove('border-red-500');
                           }
                         }}
                         className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                         placeholder="e.g., 10:45"
-                        pattern="^([0-9]|0[0-9]|1[0-9]|2[0-3]):([0-9]|0[0-9]|1[0-9]|2[0-9]|3[0-9]|4[0-9]|5[0-9])$"
                         required
                       />
+                      {bookingForm.endTime && !/^([0-9]|0[0-9]|1[0-9]|2[0-3]):([0-9]|0[0-9]|1[0-9]|2[0-9]|3[0-9]|4[0-9]|5[0-9])$/.test(bookingForm.endTime) && (
+                        <p className="text-xs text-red-500 mt-1">Please use HH:MM format (e.g., 14:37)</p>
+                      )}
                     </div>
                   </>
                 )}
@@ -3230,9 +3350,15 @@ const AppContent = () => {
               {/* Right Column - Full Timetable */}
               <div className="flex-1">
                 <label className="block text-sm font-medium text-gray-700 mb-3">Available Time Slots</label>
-                <div className="bg-gray-50 rounded-lg p-4">
+                
+
+                
+                <div className="bg-gray-50 rounded-lg p-4" key={`facility-${bookingForm.facility}-${bookingForm.hall}`}>
                   {(() => {
                     const selectedFacility = (facilities || []).find(f => f?.name === bookingForm.facility);
+                    
+
+                    
                     if (!selectedFacility) return <div className="text-gray-500 text-center py-4">Select a facility first</div>;
                     
                     const days = [
@@ -3245,7 +3371,7 @@ const AppContent = () => {
                       { key: 'sunday', label: 'Sun' },
                     ];
                     
-                    const slots = Array.from({ length: 30 }, (_, i) => {
+                    const slots = Array.from({ length: 31 }, (_, i) => {
                       const hour = 7 + Math.floor(i / 2);
                       const minute = i % 2 === 0 ? '00' : '30';
                       return `${String(hour).padStart(2, '0')}:${minute}`;
@@ -3260,9 +3386,19 @@ const AppContent = () => {
                     const selectedDay = getDayFromDate(bookingForm.date);
                     
                     const isSlotAvailable = (day, slotIdx) => {
+                      // Safety check: ensure selectedFacility exists
+                      if (!selectedFacility) return false;
+                      
                       // Get the selected hall's opening hours, fall back to facility default
                       const selectedHall = selectedFacility?.halls?.find(h => h?.name === bookingForm.hall);
                       const dayGrid = selectedHall?.openingHoursGrid?.[day] || selectedFacility?.openingHoursGrid?.[day];
+                      
+                      // Use the facility's opening hours directly
+                      const facilityDayGrid = selectedFacility?.openingHoursGrid?.[day];
+                      if (facilityDayGrid && Array.isArray(facilityDayGrid)) {
+                        return facilityDayGrid[slotIdx] !== false;
+                      }
+                      
                       return dayGrid?.[slotIdx] !== false;
                     };
                     
@@ -3276,6 +3412,11 @@ const AppContent = () => {
                       if (!bookingForm.startTime) {
                         // Set start time
                         setBookingForm(prev => ({ ...prev, startTime: time }));
+                        
+                        // If this is the last slot (21:30), auto-set end time to 22:00
+                        if (slotIdx === 29) { // 29 is the last slot (21:30)
+                          setBookingForm(prev => ({ ...prev, endTime: '22:00' }));
+                        }
                       } else if (!bookingForm.endTime) {
                         // Set end time - must be after start time
                         const startIdx = slots.indexOf(bookingForm.startTime);
@@ -3285,6 +3426,11 @@ const AppContent = () => {
                       } else {
                         // Reset and set new start time
                         setBookingForm(prev => ({ ...prev, startTime: time, endTime: '' }));
+                        
+                        // If this is the last slot (21:30), auto-set end time to 22:00
+                        if (slotIdx === 29) { // 29 is the last slot (21:30)
+                          setBookingForm(prev => ({ ...prev, endTime: '22:00' }));
+                        }
                       }
                     };
                     
@@ -3306,7 +3452,7 @@ const AppContent = () => {
                       const [hours, minutes] = time.split(':').map(Number);
                       const totalMinutes = hours * 60 + minutes;
                       const slotIndex = Math.floor((totalMinutes - 420) / 30); // 420 = 7:00 in minutes
-                      return Math.max(0, Math.min(29, slotIndex)); // Clamp to 0-29 range
+                      return Math.max(0, Math.min(30, slotIndex)); // Clamp to 0-30 range (7:00 to 22:00)
                     };
 
                     // Check if a time slot should be highlighted based on custom time input
@@ -3326,32 +3472,9 @@ const AppContent = () => {
                     
                     return (
                       <div>
-                        {/* Grid Legend */}
-                        <div className="mb-3 p-3 bg-gray-50 rounded-lg">
-                          <div className="text-xs font-medium text-gray-700 mb-2">Grid Legend:</div>
-                          <div className="flex flex-wrap gap-4 text-xs">
-                            <div className="flex items-center space-x-2">
-                              <div className="w-3 h-3 bg-green-200 rounded"></div>
-                              <span className="text-gray-600">Available</span>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <div className="w-3 h-3 bg-red-200 rounded"></div>
-                              <span className="text-gray-600">Closed</span>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <div className="w-3 h-3 bg-blue-500 rounded"></div>
-                              <span className="text-gray-600">Selected</span>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <div className="w-3 h-3 bg-blue-200 rounded"></div>
-                              <span className="text-gray-600">Grid Range</span>
-                            </div>
-                            <div className="flex items-center space-x-2">
-                              <div className="w-3 h-3 bg-purple-300 rounded"></div>
-                              <span className="text-gray-600">Custom Time Range</span>
-                            </div>
-                          </div>
-                        </div>
+                        
+                        
+
                         
                         <div className="grid grid-cols-8 gap-1 text-xs mb-2">
                           <div className="font-medium text-gray-700">Time</div>

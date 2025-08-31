@@ -85,7 +85,7 @@ function validateHallAvailability(facility, hallName) {
   return { valid: true, hall };
 }
 
-// Helper function to validate custom time format (15-minute intervals)
+// Helper function to validate custom time format (any valid HH:MM format)
 function validateCustomTimeFormat(time) {
   if (!time || typeof time !== 'string') return false;
   
@@ -96,13 +96,13 @@ function validateCustomTimeFormat(time) {
   
   const [hours, minutes] = time.split(':').map(Number);
   
-  // Check if minutes are in 15-minute intervals (0, 15, 30, 45)
-  if (minutes % 15 !== 0) {
+  // Check if hours are within valid range (0-23)
+  if (hours < 0 || hours > 23) {
     return false;
   }
   
-  // Check if hours are within valid range (0-23)
-  if (hours < 0 || hours > 23) {
+  // Check if minutes are within valid range (0-59)
+  if (minutes < 0 || minutes > 59) {
     return false;
   }
   
@@ -221,10 +221,10 @@ router.post('/', [
     return res.status(400).json({ errors: errors.array() });
   }
 
-  // Validate custom time format (15-minute intervals)
+  // Validate custom time format (any valid HH:MM format)
   if (!validateCustomTimeFormat(req.body.startTime) || !validateCustomTimeFormat(req.body.endTime)) {
     return res.status(400).json({ 
-      message: 'Start and end times must be in HH:MM format with 15-minute intervals (e.g., 10:15, 17:30)' 
+      message: 'Start and end times must be in valid HH:MM format (e.g., 10:15, 17:30, 14:07)' 
     });
   }
 
@@ -307,6 +307,7 @@ router.post('/', [
     
     // Handle recurring bookings
     if (req.body.recurring && req.body.recurring !== 'none') {
+      console.log(`Creating recurring bookings for pattern: ${req.body.recurring}`);
       const baseDate = new Date(req.body.date);
       const startTime = req.body.startTime;
       const endTime = req.body.endTime;
@@ -318,6 +319,7 @@ router.post('/', [
       
       // Create recurring bookings for the next 12 occurrences
       for (let i = 1; i <= 12; i++) {
+        console.log(`Creating recurring booking ${i}/12`);
         let nextDate;
         
         switch (req.body.recurring) {
@@ -342,6 +344,7 @@ router.post('/', [
         // Check for conflicts on the next date
         const conflictQuery = {
           facility: req.body.facility,
+          hall: req.body.hall, // Include hall in conflict checking
           date: {
             $gte: new Date(new Date(nextDate).setHours(0, 0, 0, 0)),
             $lt: new Date(new Date(nextDate).setHours(23, 59, 59, 999))
@@ -357,6 +360,7 @@ router.post('/', [
         const hasConflict = await Booking.findOne(conflictQuery);
         if (hasConflict) {
           // Skip this date if there's a conflict
+          console.log(`Skipping date ${nextDate.toISOString().split('T')[0]} due to conflict`);
           currentDate = nextDate;
           continue;
         }
@@ -365,6 +369,7 @@ router.post('/', [
         const recurringValidationResult = validateTimeSlotsAgainstOpeningHours(facility, nextDate, startTime, endTime);
         if (!recurringValidationResult.valid) {
           // Skip this date if the facility is closed during the requested time
+          console.log(`Skipping date ${nextDate.toISOString().split('T')[0]} due to facility validation: ${recurringValidationResult.message}`);
           currentDate = nextDate;
           continue;
         }
@@ -373,6 +378,7 @@ router.post('/', [
         const recurringBooking = new Booking({
           facility: req.body.facility,
           facilityName: facility.name,
+          hall: req.body.hall, // Include hall field
           date: nextDate,
           startTime: startTime,
           endTime: endTime,
@@ -385,6 +391,7 @@ router.post('/', [
           ...(recurrenceGroupId ? { recurrenceGroupId } : {})
         });
         
+        console.log(`Adding recurring booking for date: ${nextDate.toISOString().split('T')[0]}`);
         recurringBookings.push(recurringBooking);
         currentDate = nextDate;
       }
@@ -392,7 +399,9 @@ router.post('/', [
       // Save all recurring bookings
       if (recurringBookings.length > 0) {
         await Booking.insertMany(recurringBookings);
-        console.log(`Created ${recurringBookings.length} recurring bookings for ${req.body.recurring} pattern`);
+        console.log(`Successfully created ${recurringBookings.length} recurring bookings for ${req.body.recurring} pattern`);
+      } else {
+        console.log(`No recurring bookings were created - all dates had conflicts or validation issues`);
       }
     }
     
@@ -461,11 +470,11 @@ router.put('/:id/details', [
       const startTime = req.body.startTime || booking.startTime;
       const endTime = req.body.endTime || booking.endTime;
 
-      // Validate custom time format (15-minute intervals)
+      // Validate custom time format (any valid HH:MM format)
       if ((req.body.startTime && !validateCustomTimeFormat(req.body.startTime)) || 
           (req.body.endTime && !validateCustomTimeFormat(req.body.endTime))) {
         return res.status(400).json({ 
-          message: 'Start and end times must be in HH:MM format with 15-minute intervals (e.g., 10:15, 17:30)' 
+          message: 'Start and end times must be in valid HH:MM format (e.g., 10:15, 17:30, 14:07)' 
         });
       }
 
@@ -530,10 +539,77 @@ router.post('/:id/verify', authenticateToken, async (req, res) => {
       return res.status(400).json({ message: 'Only pending bookings can be verified' });
     }
 
+    // If this is a recurring booking, verify the entire series in chronological order
+    if (booking.recurrenceGroupId) {
+      console.log(`Verifying recurring series with group ID: ${booking.recurrenceGroupId}`);
+      
+      // Find all pending bookings in this recurrence group, sorted by date (earliest first)
+      const recurringBookings = await Booking.find({ 
+        recurrenceGroupId: booking.recurrenceGroupId,
+        status: 'pending'
+      }).sort({ date: 1, startTime: 1 });
+      
+      console.log(`Found ${recurringBookings.length} pending recurring bookings to verify`);
+      
+      if (recurringBookings.length > 0) {
+        // Verify all pending bookings in chronological order
+        const updatePromises = recurringBookings.map(booking => 
+          Booking.findByIdAndUpdate(booking._id, { status: 'confirmed' }, { new: true })
+        );
+        
+        const verifiedBookings = await Promise.all(updatePromises);
+        console.log(`Successfully verified ${verifiedBookings.length} recurring bookings`);
+        
+        return res.json({ 
+          message: `Recurring series verified successfully - ${verifiedBookings.length} bookings confirmed`,
+          verifiedCount: verifiedBookings.length,
+          firstVerifiedDate: verifiedBookings[0]?.date,
+          lastVerifiedDate: verifiedBookings[verifiedBookings.length - 1]?.date
+        });
+      }
+    } else if (booking.recurring && booking.recurring !== 'none') {
+      // Handle legacy recurring bookings without recurrenceGroupId
+      console.log(`Verifying legacy recurring booking pattern: ${booking.recurring}`);
+      
+      // Find all pending bookings with the same recurring pattern, sorted by date (earliest first)
+      const recurringBookings = await Booking.find({
+        facility: booking.facility,
+        facilityName: booking.facilityName,
+        startTime: booking.startTime,
+        endTime: booking.endTime,
+        user: booking.user,
+        userName: booking.userName,
+        purpose: booking.purpose,
+        recurring: booking.recurring,
+        status: 'pending'
+      }).sort({ date: 1, startTime: 1 });
+      
+      console.log(`Found ${recurringBookings.length} pending legacy recurring bookings to verify`);
+      
+      if (recurringBookings.length > 0) {
+        // Verify all pending bookings in chronological order
+        const updatePromises = recurringBookings.map(booking => 
+          Booking.findByIdAndUpdate(booking._id, { status: 'confirmed' }, { new: true })
+        );
+        
+        const verifiedBookings = await Promise.all(updatePromises);
+        console.log(`Successfully verified ${verifiedBookings.length} legacy recurring bookings`);
+        
+        return res.json({ 
+          message: `Legacy recurring series verified successfully - ${verifiedBookings.length} bookings confirmed`,
+          verifiedCount: verifiedBookings.length,
+          firstVerifiedDate: verifiedBookings[0]?.date,
+          lastVerifiedDate: verifiedBookings[verifiedBookings.length - 1]?.date
+        });
+      }
+    }
+
+    // For non-recurring bookings, just verify the single booking
     booking.status = 'confirmed';
     await booking.save();
     res.json({ message: 'Booking verified successfully', booking });
   } catch (error) {
+    console.error('Error verifying booking:', error);
     res.status(500).json({ message: 'Server error', error: error.message });
   }
 });

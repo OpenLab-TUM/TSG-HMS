@@ -1,6 +1,6 @@
 /* eslint-disable no-unused-vars */
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Calendar, MapPin, Users, Clock, ChevronRight, Grid, Plus, Search, Map, User, Settings, LogOut, Home, X, Edit2, Trash2, Eye, Table2, ChevronLeft, Tag } from 'lucide-react';
+import { Calendar, MapPin, Users, Clock, ChevronRight, Grid, Plus, Search, Map as MapIcon, User, Settings, LogOut, Home, X, Edit2, Trash2, Eye, Table2, ChevronLeft, Tag } from 'lucide-react';
 import api from './services/api';
 import { useAuth, AuthProvider } from './contexts/AuthContext';
 import Login from './components/Login';
@@ -752,7 +752,7 @@ const AppContent = () => {
     const dayNames = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
     const startOfDayMin = 6 * 60;
     const endOfDayMin = 22 * 60;
-    const hourHeightPx = 48; // Increased height for better quality
+    const hourHeightPx = 60; // Increased height for better quality
     const totalHours = (endOfDayMin - startOfDayMin) / 60;
     const hours = Array.from({ length: totalHours + 1 }, (_, i) => 6 + i);
 
@@ -1533,7 +1533,7 @@ const AppContent = () => {
               currentView === 'map' ? 'bg-blue-600 text-white' : 'text-gray-300 hover:bg-gray-800'
             }`}
           >
-            <Map className="w-5 h-5" />
+            <MapIcon className="w-5 h-5" />
             <span>Map View</span>
           </button>
         </nav>
@@ -1927,6 +1927,9 @@ const AppContent = () => {
       const height = Math.max(20, ((e - s) / 60) * hourHeightPx - 2);
       return { top: `${top}px`, height: `${height}px` };
     };
+    // Color maps for timetable rendering
+    let purposeColorMapSingle = new Map();
+    let purposeColorMapAll = new Map();
     
     return (
       <div className="p-8">
@@ -1971,6 +1974,33 @@ const AppContent = () => {
           {facilityFilter !== 'all' ? (
             <div className="overflow-x-auto">
               <div className="min-w-[1000px] p-4">
+                {(() => {
+                  // Build purpose color map for the selected facility (and hall filter) across the week
+                  const palette = [
+                    { bg: 'bg-rose-500', border: 'border-rose-600' },
+                    { bg: 'bg-orange-500', border: 'border-orange-600' },
+                    { bg: 'bg-amber-500', border: 'border-amber-600' },
+                    { bg: 'bg-yellow-500', border: 'border-yellow-600' },
+                    { bg: 'bg-lime-500', border: 'border-lime-600' },
+                    { bg: 'bg-green-500', border: 'border-green-600' },
+                    { bg: 'bg-emerald-500', border: 'border-emerald-600' },
+                    { bg: 'bg-teal-500', border: 'border-teal-600' },
+                    { bg: 'bg-cyan-500', border: 'border-cyan-600' },
+                    { bg: 'bg-sky-500', border: 'border-sky-600' },
+                    { bg: 'bg-blue-500', border: 'border-blue-600' },
+                    { bg: 'bg-indigo-500', border: 'border-indigo-600' },
+                    { bg: 'bg-violet-500', border: 'border-violet-600' },
+                    { bg: 'bg-purple-500', border: 'border-purple-600' },
+                    { bg: 'bg-fuchsia-500', border: 'border-fuchsia-600' },
+                    { bg: 'bg-pink-500', border: 'border-pink-600' },
+                  ];
+                  const sel = (facilities || []).find(f => f?._id === facilityFilter);
+                  const relevant = weekDates.flatMap((date) => getBookingsForFacilityAndDate(sel, date, hallFilter !== 'all' ? hallFilter : null));
+                  const unique = Array.from(new Set(relevant.map(b => (b.purpose || 'Booked').trim() || 'Booked')))
+                    .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+                  purposeColorMapSingle = new Map(unique.map((p, idx) => [p, palette[idx % palette.length]]));
+                  return null;
+                })()}
                 <div className="grid grid-cols-8 gap-0 border-b border-gray-200 mb-2">
                   <div className="p-2 font-medium text-gray-700 bg-gray-50">Time</div>
                   {dayNames.map((d, i) => {
@@ -2026,10 +2056,12 @@ const AppContent = () => {
                             const style = computeBlockStyle(b.startTime, b.endTime);
                             const isConfirmed = b.status === 'confirmed';
                             const masked = shouldMaskBooking(b);
+                            const palette = purposeColorMapSingle.get((b.purpose || 'Booked').trim() || 'Booked') || { bg: 'bg-gray-500', border: 'border-gray-600' };
+                            const borderStyle = isConfirmed ? 'border-solid' : 'border-dashed';
                             return (
                               <div
                                 key={b._id}
-                                className={`absolute left-1 right-1 rounded-md px-2 py-1 shadow-sm overflow-hidden ${isConfirmed ? 'bg-blue-500 text-white' : 'bg-amber-500 text-white'}`}
+                                className={`absolute left-1 right-1 rounded-md px-2 py-1 shadow-sm overflow-hidden text-white border ${palette.bg} ${palette.border} ${borderStyle}`}
                                 style={{ ...style, cursor: (isAdmin() || b.user === user?._id) ? 'pointer' : 'default' }}
                                 title={getMaskedTitle(b)}
                                 onClick={(e) => {
@@ -2056,11 +2088,13 @@ const AppContent = () => {
                               const totalBookings = group.length;
                               const bookingWidth = 100 / totalBookings; // Percentage width
                               const leftOffset = (bookingIndex * bookingWidth); // Percentage left position
+                              const palette = purposeColorMapSingle.get((b.purpose || 'Booked').trim() || 'Booked') || { bg: 'bg-gray-500', border: 'border-gray-600' };
+                              const borderStyle = isConfirmed ? 'border-solid' : 'border-dashed';
                               
                               return (
                                 <div
                                   key={b._id}
-                                  className={`absolute rounded-md px-2 py-1 shadow-sm overflow-hidden ${isConfirmed ? 'bg-blue-500 text-white' : 'bg-amber-500 text-white'}`}
+                                  className={`absolute rounded-md px-2 py-1 shadow-sm overflow-hidden text-white border ${palette.bg} ${palette.border} ${borderStyle}`}
                                   style={{ 
                                     ...style, 
                                     left: `${leftOffset + 1}%`,
@@ -2095,6 +2129,34 @@ const AppContent = () => {
           ) : (
             <div className="overflow-x-auto">
               <div className="min-w-[1400px]">
+                {(() => {
+                  // Build purpose color map for all facilities across the week
+                  const palette = [
+                    { bg: 'bg-rose-500', border: 'border-rose-600' },
+                    { bg: 'bg-orange-500', border: 'border-orange-600' },
+                    { bg: 'bg-amber-500', border: 'border-amber-600' },
+                    { bg: 'bg-yellow-500', border: 'border-yellow-600' },
+                    { bg: 'bg-lime-500', border: 'border-lime-600' },
+                    { bg: 'bg-green-500', border: 'border-green-600' },
+                    { bg: 'bg-emerald-500', border: 'border-emerald-600' },
+                    { bg: 'bg-teal-500', border: 'border-teal-600' },
+                    { bg: 'bg-cyan-500', border: 'border-cyan-600' },
+                    { bg: 'bg-sky-500', border: 'border-sky-600' },
+                    { bg: 'bg-blue-500', border: 'border-blue-600' },
+                    { bg: 'bg-indigo-500', border: 'border-indigo-600' },
+                    { bg: 'bg-violet-500', border: 'border-violet-600' },
+                    { bg: 'bg-purple-500', border: 'border-purple-600' },
+                    { bg: 'bg-fuchsia-500', border: 'border-fuchsia-600' },
+                    { bg: 'bg-pink-500', border: 'border-pink-600' },
+                  ];
+                  const relevant = visibleFacilities.flatMap((facility) => (
+                    weekDates.flatMap((date) => getBookingsForFacilityAndDate(facility, date))
+                  ));
+                  const unique = Array.from(new Set(relevant.map(b => (b.purpose || 'Booked').trim() || 'Booked')))
+                    .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+                  purposeColorMapAll = new Map(unique.map((p, idx) => [p, palette[idx % palette.length]]));
+                  return null;
+                })()}
                 {/* Header with days */}
                 <div className="grid grid-cols-8 border-b border-gray-200 bg-gray-50">
                   <div className="p-4 font-medium text-gray-700 border-r border-gray-200">
@@ -2168,13 +2230,13 @@ const AppContent = () => {
                               <div className="h-full p-2 space-y-1">
                                 {dayBookings.map((booking, bookingIndex) => {
                                   const masked = shouldMaskBooking(booking);
+                                  const palette = purposeColorMapAll.get((booking.purpose || 'Booked').trim() || 'Booked') || { bg: 'bg-gray-500', border: 'border-gray-600' };
+                                  const isConfirmed = (booking.status || 'confirmed') === 'confirmed';
+                                  const borderStyle = isConfirmed ? 'border-solid' : 'border-dashed';
                                   return (
                                     <div
                                       key={booking._id}
-                                      className={`rounded-lg p-2 ${ (isAdmin() || booking.user === user?._id) ? 'cursor-pointer hover:opacity-90 transform hover:scale-105' : 'cursor-default' } transition-all ${
-                                        booking.status === 'confirmed' 
-                                          ? 'bg-blue-500 text-white shadow-md' : 'bg-amber-500 text-white shadow-md'
-                                      }`}
+                                      className={`rounded-lg p-2 text-white border ${ (isAdmin() || booking.user === user?._id) ? 'cursor-pointer hover:opacity-90 transform hover:scale-105' : 'cursor-default' } transition-all ${palette.bg} ${palette.border} ${borderStyle} shadow-md`}
                                       title={getMaskedTitle(booking)}
                                       onClick={(e) => {
                                         e.preventDefault();
@@ -3027,7 +3089,7 @@ const AppContent = () => {
       {/* {showBookingModal && <BookingModal />} */}
       {showBookingModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-hidden">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-7xl mx-4 max-h-[95vh] overflow-hidden">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-7xl mx-4 max-h-[95vh] overflow-y-auto">
             <div className="p-6 border-b border-gray-200">
               <div className="flex items-center justify-between">
                 <h3 className="text-xl font-semibold text-gray-900">
@@ -3057,10 +3119,10 @@ const AppContent = () => {
             
             <form 
               onSubmit={editingBooking ? handleUpdateBooking : handleBookingSubmit} 
-              className="p-6 flex gap-6"
+              className="p-6 flex flex-col lg:flex-row gap-6"
             >
               {/* Left Column - Form Fields */}
-              <div className="w-80 space-y-4">
+              <div className="w-full lg:w-80 space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">Facility</label>
                   <select
@@ -3348,10 +3410,10 @@ const AppContent = () => {
               </div>
               
               {/* Right Column - Full Timetable */}
-              <div className="flex-1">
+              <div className="w-full lg:flex-1">
                 <label className="block text-sm font-medium text-gray-700 mb-3">Available Time Slots</label>
                 
-
+                
                 
                 <div className="bg-gray-50 rounded-lg p-4" key={`facility-${bookingForm.facility}-${bookingForm.hall}`}>
                   {(() => {
@@ -3384,6 +3446,58 @@ const AppContent = () => {
                     };
                     
                     const selectedDay = getDayFromDate(bookingForm.date);
+
+                    // Pre-compute booked slot indices per weekday (30-min grid, Mon..Sun) for current facility/hall
+                    const bookedSlotsByDay = (() => {
+                      const perDay = {
+                        monday: new Set(),
+                        tuesday: new Set(),
+                        wednesday: new Set(),
+                        thursday: new Set(),
+                        friday: new Set(),
+                        saturday: new Set(),
+                        sunday: new Set(),
+                      };
+                      if (!selectedFacility || !bookings || bookings.length === 0) return perDay;
+
+                      const matchesFacility = (booking) => (
+                        booking.facility === selectedFacility?._id ||
+                        booking.facilityName === selectedFacility?.name
+                      );
+
+                      const timeToMinutes = (t) => {
+                        if (!t || typeof t !== 'string' || !t.includes(':')) return null;
+                        const [hh, mm] = t.split(':').map((v) => parseInt(v, 10));
+                        if (Number.isNaN(hh) || Number.isNaN(mm)) return null;
+                        return hh * 60 + mm;
+                      };
+
+                      const minutesToGridIndex = (mins) => {
+                        const idx = Math.floor((mins - 420) / 30); // 7:00 = 420
+                        if (idx < 0 || idx > 30) return null;
+                        return idx;
+                      };
+
+                      bookings.forEach((booking) => {
+                        if (!matchesFacility(booking)) return;
+                        if (bookingForm.hall && booking.hall !== bookingForm.hall) return;
+                        if (editingBooking && booking._id === editingBooking._id) return;
+
+                        const dayKeyForBooking = getDayFromDate(new Date(booking.date).toISOString().split('T')[0]);
+                        if (!perDay[dayKeyForBooking]) return;
+
+                        const startMins = timeToMinutes(booking.startTime);
+                        const endMins = timeToMinutes(booking.endTime);
+                        if (startMins == null || endMins == null) return;
+
+                        for (let m = startMins; m < endMins; m += 30) {
+                          const idx = minutesToGridIndex(m);
+                          if (idx != null) perDay[dayKeyForBooking].add(idx);
+                        }
+                      });
+
+                      return perDay;
+                    })();
                     
                     const isSlotAvailable = (day, slotIdx) => {
                       // Safety check: ensure selectedFacility exists
@@ -3401,9 +3515,15 @@ const AppContent = () => {
                       
                       return dayGrid?.[slotIdx] !== false;
                     };
+
+                    // Check if a slot is booked using the precomputed per-day map
+                    const isSlotBooked = (day, slotIdx) => {
+                      const setForDay = bookedSlotsByDay[day];
+                      return !!setForDay && setForDay.has(slotIdx);
+                    };
                     
                     const handleSlotClick = (day, slotIdx, time, event) => {
-                      if (!isSlotAvailable(day, slotIdx)) return;
+                      if (!isSlotAvailable(day, slotIdx) || isSlotBooked(day, slotIdx, time)) return;
                       
                       // Prevent default behavior and stop propagation
                       event.preventDefault();
@@ -3471,23 +3591,25 @@ const AppContent = () => {
                     };
                     
                     return (
-                      <div>
+                      <div className="overflow-x-auto">
+                        <div className="min-w-max">
                         
                         
 
                         
-                        <div className="grid grid-cols-8 gap-1 text-xs mb-2">
-                          <div className="font-medium text-gray-700">Time</div>
-                          {days.map(d => (
-                            <div key={d.key} className="font-medium text-gray-700 text-center">{d.label}</div>
-                          ))}
-                        </div>
+                          <div className="grid grid-cols-8 gap-1 text-xs mb-2">
+                            <div className="font-medium text-gray-700 w-16">Time</div>
+                            {days.map(d => (
+                              <div key={d.key} className="font-medium text-gray-700 text-center w-16">{d.label}</div>
+                            ))}
+                          </div>
                         {slots.map((time, slotIdx) => (
                           <div key={time} className="grid grid-cols-8 gap-1 items-center mb-1">
                             <div className="text-gray-600 w-16 text-xs">{time}</div>
                             {days.map(d => {
                               const dayKey = d.key;
                               const isAvailable = isSlotAvailable(dayKey, slotIdx);
+                              const isBooked = isSlotBooked(dayKey, slotIdx, time);
                               const isSelected = isSlotSelected(time) && dayKey === selectedDay;
                               const isInRange = isSlotInRange(time) && dayKey === selectedDay;
                               const isCustomTimeRange = isSlotInCustomTimeRange(time, dayKey);
@@ -3497,24 +3619,31 @@ const AppContent = () => {
                               if (isSelected) bgColor = 'bg-blue-500';
                               else if (isCustomTimeRange) bgColor = 'bg-purple-300'; // Custom time range
                               else if (isInRange) bgColor = 'bg-blue-200';
+                              else if (isBooked) bgColor = 'bg-orange-400/60'; // Booked with lower opacity
                               else if (isAvailable) bgColor = 'bg-green-200';
                               else bgColor = 'bg-red-200';
+                              
+                              const isClickable = isAvailable && isSelectedDay && !isBooked;
                               
                               return (
                                 <button
                                   key={`${dayKey}-${slotIdx}`}
                                   type="button"
-                                  disabled={!isAvailable || !isSelectedDay}
-                                  className={`h-6 rounded transition-colors text-xs ${bgColor} ${
-                                    isAvailable && isSelectedDay ? 'hover:opacity-80 cursor-pointer' : 'cursor-not-allowed'
+                                  disabled={!isClickable}
+                                  className={`h-6 w-16 rounded transition-colors text-xs ${bgColor} ${
+                                    isClickable ? 'hover:opacity-80 cursor-pointer' : 'cursor-not-allowed'
                                   } ${!isSelectedDay ? 'blur-[0.5px] opacity-30' : ''}`}
-                                  onClick={(e) => isSelectedDay && handleSlotClick(dayKey, slotIdx, time, e)}
-                                  title={`${d.label} ${time} ${isAvailable ? 'Available' : 'Closed'}${!isSelectedDay ? ' (not selected day)' : ''}`}
+                                  onClick={(e) => isClickable && handleSlotClick(dayKey, slotIdx, time, e)}
+                                  title={`${d.label} ${time} ${
+                                    isBooked ? 'Booked' : 
+                                    isAvailable ? 'Available' : 'Closed'
+                                  }${!isSelectedDay ? ' (not selected day)' : ''}`}
                                 />
                               );
                             })}
                           </div>
                         ))}
+                        </div>
                       </div>
                     );
                   })()}
@@ -3977,13 +4106,25 @@ const AppContent = () => {
                     <OpeningHoursGrid
                       grid={facilityForm.openingHoursGrid}
                       onToggle={(day, idx) => {
-                        setFacilityForm(prev => ({
-                          ...prev,
-                          openingHoursGrid: {
-                            ...prev.openingHoursGrid,
-                            [day]: prev.openingHoursGrid[day].map((v, i) => i === idx ? !v : v)
-                          }
-                        }));
+                        setFacilityForm(prev => {
+                          const currentDay = prev.openingHoursGrid[day] || [];
+                          // Ensure the day array has 31 half-hour slots (07:00 .. 22:00)
+                          const normalized = Array.from({ length: 31 }, (_, i) => {
+                            const value = currentDay[i];
+                            // Treat undefined as open by default to match UI semantics
+                            return value !== false;
+                          });
+                          // Toggle the requested index safely
+                          normalized[idx] = !normalized[idx];
+
+                          return {
+                            ...prev,
+                            openingHoursGrid: {
+                              ...prev.openingHoursGrid,
+                              [day]: normalized
+                            }
+                          };
+                        });
                       }}
                       facility={editingFacility}
                     />

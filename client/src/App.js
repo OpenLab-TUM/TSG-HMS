@@ -1832,7 +1832,18 @@ const AppContent = () => {
         const matchesDate = bookingDate === dateStr;
         const matchesHall = !hallName || booking?.hall === hallName;
         return matchesFacility && matchesDate && matchesHall;
-      }).sort((a, b) => (a?.startTime || '').localeCompare(b?.startTime || ''));
+      }).sort((a, b) => {
+        const [ah, am] = (a?.startTime || '00:00').split(':').map(Number);
+        const [bh, bm] = (b?.startTime || '00:00').split(':').map(Number);
+        const aStart = (ah || 0) * 60 + (am || 0);
+        const bStart = (bh || 0) * 60 + (bm || 0);
+        if (aStart !== bStart) return aStart - bStart;
+        const [aeh, aem] = (a?.endTime || '00:00').split(':').map(Number);
+        const [beh, bem] = (b?.endTime || '00:00').split(':').map(Number);
+        const aEnd = (aeh || 0) * 60 + (aem || 0);
+        const bEnd = (beh || 0) * 60 + (bem || 0);
+        return aEnd - bEnd;
+      });
     };
 
     // Helper function to group overlapping bookings and calculate their positions
@@ -3088,7 +3099,7 @@ const AppContent = () => {
       
       {/* {showBookingModal && <BookingModal />} */}
       {showBookingModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-hidden">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[1200] overflow-hidden">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-7xl mx-4 max-h-[95vh] overflow-y-auto">
             <div className="p-6 border-b border-gray-200">
               <div className="flex items-center justify-between">
@@ -3656,7 +3667,7 @@ const AppContent = () => {
 
       {/* {selectedFacility && <FacilityDetailModal />} */}
       {selectedFacility && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 overflow-hidden">
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[1200] overflow-hidden">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl mx-4 max-h-[90vh] overflow-y-auto">
             <div className="p-6 border-b border-gray-200">
               <div className="flex items-center justify-between">

@@ -45,6 +45,7 @@ function validateTimeSlotsAgainstOpeningHours(facility, date, startTime, endTime
   const endSlot = timeToSlotIndex(endTime);
   
   // Check if all slots in the range are available
+  // This prevents bookings that span across closed periods (e.g., 10:00-13:00 when facility is closed 11:00-12:00)
   for (let slot = startSlot; slot < endSlot; slot++) {
     if (slot < 0 || slot >= dayGrid.length || dayGrid[slot] === false) {
       const slotTime = new Date();
@@ -52,7 +53,7 @@ function validateTimeSlotsAgainstOpeningHours(facility, date, startTime, endTime
       const timeString = slotTime.toTimeString().slice(0, 5);
       return { 
         valid: false, 
-        message: `Facility is closed at ${timeString} on ${dayKey}. Please adjust your booking time.` 
+        message: `Booking cannot span across closed periods. Facility is closed at ${timeString} on ${dayKey}. Please split your booking or choose a different time.` 
       };
     }
   }
@@ -366,7 +367,7 @@ router.post('/', [
         }
         
         // Validate time slots against facility opening hours for this recurring date
-        const recurringValidationResult = validateTimeSlotsAgainstOpeningHours(facility, nextDate, startTime, endTime);
+        const recurringValidationResult = validateTimeSlotsAgainstOpeningHours(facility, nextDate, startTime, endTime, req.body.hall);
         if (!recurringValidationResult.valid) {
           // Skip this date if the facility is closed during the requested time
           console.log(`Skipping date ${nextDate.toISOString().split('T')[0]} due to facility validation: ${recurringValidationResult.message}`);
@@ -415,7 +416,7 @@ router.post('/', [
 
 // PUT update booking
 router.put('/:id', [
-  body('status').isIn(['pending', 'confirmed', 'cancelled', 'completed']).withMessage('Invalid status')
+  body('status').optional().isIn(['pending', 'confirmed', 'cancelled', 'completed']).withMessage('Invalid status')
 ], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
@@ -479,7 +480,7 @@ router.put('/:id/details', [
       }
 
       // Validate time slots against facility opening hours
-      const validationResult = validateTimeSlotsAgainstOpeningHours(facility, date, startTime, endTime);
+      const validationResult = validateTimeSlotsAgainstOpeningHours(facility, date, startTime, endTime, req.body.hall || booking.hall);
       if (!validationResult.valid) {
         return res.status(400).json({ message: validationResult.message });
       }

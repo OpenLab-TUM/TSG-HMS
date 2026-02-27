@@ -7,7 +7,45 @@ require('dotenv').config({ path: './config.env' });
 const app = express();
 
 // Middleware
-app.use(cors());
+// CORS configuration to support localhost and ngrok domains with credentials
+const allowedOriginPatterns = [
+  /^https?:\/\/localhost:(3000|5000|5001)$/,
+  /^https?:\/\/127\.0\.0\.1:(3000|5000|5001)$/,
+  /^https?:\/\/[a-z0-9-]+\.ngrok\.io$/,
+  /^https?:\/\/[a-z0-9-]+\.ngrok-free\.app$/,
+];
+
+// Allow additional explicit origins via env (comma-separated)
+const envAllowedOrigins = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (e.g., mobile apps, curl, same-origin)
+    if (!origin) return callback(null, true);
+
+    if (envAllowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    const isAllowedByPattern = allowedOriginPatterns.some((re) => re.test(origin));
+    if (isAllowedByPattern) {
+      return callback(null, true);
+    }
+
+    return callback(new Error(`Not allowed by CORS: ${origin}`));
+  },
+  credentials: String(process.env.CORS_ALLOW_CREDENTIALS || 'true') === 'true',
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+};
+
+app.use(cors(corsOptions));
+// Handle preflight requests for all routes
+app.options('*', cors(corsOptions));
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'client/build')));
 

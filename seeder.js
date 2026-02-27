@@ -213,6 +213,61 @@ const sampleFacilities = [
       sunday: { open: '09:00', close: '17:00' }
     },
     hourlyRate: 20
+  },
+  {
+    name: 'Test Facility with Closed Periods',
+    location: {
+      type: 'Point',
+      coordinates: [9.1830, 48.7760] // Near other facilities
+    },
+    status: 'open',
+    equipment: ['Test equipment'],
+    halls: [
+      {
+        name: 'Test Hall',
+        status: 'open',
+        openingHoursGrid: {
+          monday: [
+            // 07:00-09:00 (slots 0-3) - closed
+            false, false, false, false,
+            // 09:00-11:00 (slots 4-7) - open
+            true, true, true, true,
+            // 11:00-12:00 (slots 8-9) - closed
+            false, false,
+            // 12:00-14:00 (slots 10-13) - open
+            true, true, true, true,
+            // 14:00-22:00 (slots 14-29) - closed
+            false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false
+          ],
+          tuesday: Array(30).fill(false), // Closed all day
+          wednesday: Array(30).fill(false), // Closed all day
+          thursday: Array(30).fill(false), // Closed all day
+          friday: Array(30).fill(false), // Closed all day
+          saturday: Array(30).fill(false), // Closed all day
+          sunday: Array(30).fill(false) // Closed all day
+        }
+      }
+    ],
+    openingHoursGrid: {
+      monday: [
+        // 07:00-09:00 (slots 0-3) - closed
+        false, false, false, false,
+        // 09:00-11:00 (slots 4-7) - open
+        true, true, true, true,
+        // 11:00-12:00 (slots 8-9) - closed
+        false, false,
+        // 12:00-14:00 (slots 10-13) - open
+        true, true, true, true,
+        // 14:00-22:00 (slots 14-29) - closed
+        false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false
+      ],
+      tuesday: Array(30).fill(false),
+      wednesday: Array(30).fill(false),
+      thursday: Array(30).fill(false),
+      friday: Array(30).fill(false),
+      saturday: Array(30).fill(false),
+      sunday: Array(30).fill(false)
+    }
   }
 ];
 

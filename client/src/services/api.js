@@ -1,4 +1,26 @@
-const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:5001/api';
+// Determine API base URL with sensible defaults:
+// - If REACT_APP_API_URL is set, use it (works for ngrok or any external host)
+// - If running on localhost:3000 (CRA dev), default to localhost:5000
+// - Otherwise assume same-origin (useful when backend is reverse-proxied under the same host)
+const inferApiBaseUrl = () => {
+  const envUrl = process.env.REACT_APP_API_URL;
+  if (envUrl && envUrl.trim().length > 0) return envUrl;
+
+  if (typeof window !== 'undefined') {
+    const { origin, hostname, port, protocol } = window.location;
+    if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      // Dev server on port 3000 usually; backend on 5000
+      return 'http://localhost:5001/api';
+    }
+    // For ngrok or deployed environments where backend is served at same origin
+    return `${origin}/api`;
+  }
+
+  // Fallback for non-browser environments
+  return 'http://localhost:5001/api';
+};
+
+const API_BASE_URL = inferApiBaseUrl();
 
 class ApiService {
   // Generic request method
@@ -14,6 +36,8 @@ class ApiService {
         ...(token && { 'Authorization': `Bearer ${token}` }),
         ...options.headers,
       },
+      // Include credentials only if explicitly requested via env (cookie-based auth)
+      ...(process.env.REACT_APP_INCLUDE_CREDENTIALS === 'true' ? { credentials: 'include' } : {}),
       ...options,
     };
 

@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Calendar, MapPin, Users, Clock, ChevronRight, Grid, Plus, Search, Map as MapIcon, User, Settings, LogOut, Home, X, Edit2, Trash2, Eye, Table2, ChevronLeft, Tag } from 'lucide-react';
 import api from './services/api';
 import { useAuth, AuthProvider } from './contexts/AuthContext';
+import { useLanguage, LanguageProvider } from './contexts/LanguageContext';
 import Login from './components/Login';
 import Register from './components/Register';
 import MapView from './components/MapView';
@@ -19,6 +20,7 @@ ChartJS.register(CategoryScale, LinearScale, PointElement, LineElement, BarEleme
 const AppContent = () => {
   const { user, isAdmin, isCollaborator, canBook, canManageUsers, canManageFacilities, canViewReports, canEditBooking, canDeleteBooking, logout, login, register, loading: authLoading, error: authError, setError: setAuthError } = useAuth();
   const { toasts, addToast, removeToast, showSuccess, showError, showWarning, showInfo } = useToast();
+  const { t, language, toggleLanguage } = useLanguage();
   
   const [currentView, setCurrentView] = useState('dashboard');
   const [selectedFacility, setSelectedFacility] = useState(null);
@@ -1452,12 +1454,10 @@ const AppContent = () => {
     <div className="w-64 bg-gray-900 text-white h-screen fixed left-0 top-0 overflow-y-auto">
       <div className="p-6">
         <div className="flex items-center space-x-3 mb-8">
-          <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
-            <Home className="w-6 h-6" />
-          </div>
+          <img src={`${process.env.PUBLIC_URL || ''}/logo.png`} alt="TSG Logo" className="w-10 h-10 rounded-lg object-contain flex-shrink-0" />
           <div>
-            <h1 className="text-xl font-bold">TSG Heilbronn</h1>
-            <p className="text-xs text-gray-400">Hall Management</p>
+            <h1 className="text-xl font-bold">{t('appTitle')}</h1>
+            <p className="text-xs text-gray-400">{t('hallManagement')}</p>
           </div>
         </div>
         
@@ -1469,7 +1469,7 @@ const AppContent = () => {
             }`}
           >
             <Grid className="w-5 h-5" />
-            <span>Dashboard</span>
+            <span>{t('dashboard')}</span>
           </button>
           
           <button
@@ -1479,7 +1479,7 @@ const AppContent = () => {
             }`}
           >
             <Calendar className="w-5 h-5" />
-            <span>Bookings</span>
+            <span>{t('bookings')}</span>
           </button>
           
           <button
@@ -1489,7 +1489,7 @@ const AppContent = () => {
             }`}
           >
             <Table2 className="w-5 h-5" />
-            <span>Timetable</span>
+            <span>{t('timetable')}</span>
           </button>
           
           <button
@@ -1499,7 +1499,7 @@ const AppContent = () => {
             }`}
           >
             <MapPin className="w-5 h-5" />
-            <span>Facilities</span>
+            <span>{t('facilities')}</span>
           </button>
           
                         {canManageUsers() && (
@@ -1511,7 +1511,7 @@ const AppContent = () => {
                 }`}
               >
                 <Users className="w-5 h-5" />
-                <span>Users</span>
+                <span>{t('users')}</span>
               </button>
               
               <button
@@ -1521,7 +1521,7 @@ const AppContent = () => {
                 }`}
               >
                 <Settings className="w-5 h-5" />
-                <span>Reports</span>
+                <span>{t('reports')}</span>
               </button>
 
             </>
@@ -1534,19 +1534,30 @@ const AppContent = () => {
             }`}
           >
             <MapIcon className="w-5 h-5" />
-            <span>Map View</span>
+            <span>{t('mapView')}</span>
           </button>
         </nav>
       </div>
       
       <div className="absolute bottom-0 left-0 right-0 p-6 border-t border-gray-800">
+        {/* Language toggle - above user section */}
+        <div className="mb-4">
+          <p className="text-xs text-gray-400 mb-2">{t('language')}</p>
+          <button
+            type="button"
+            onClick={toggleLanguage}
+            className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors text-sm"
+          >
+            <span>{language === 'en' ? 'Deutsch' : 'English'}</span>
+          </button>
+        </div>
         <div className="flex items-center space-x-3 mb-4">
           <div className="w-10 h-10 bg-gray-700 rounded-full flex items-center justify-center">
             <User className="w-5 h-5" />
           </div>
           <div>
             <p className="text-sm font-medium">{user?.firstName} {user?.lastName}</p>
-            <p className="text-xs text-gray-400">{isAdmin() ? 'Administrator' : 'Collaborator'}</p>
+            <p className="text-xs text-gray-400">{isAdmin() ? t('administrator') : t('collaborator')}</p>
           </div>
         </div>
         <button 
@@ -1557,7 +1568,7 @@ const AppContent = () => {
       className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-gray-800 rounded-lg hover:bg-gray-700 transition-colors"
     >
       <LogOut className="w-4 h-4" />
-      <span className="text-sm">Logout</span>
+      <span className="text-sm">{t('logout')}</span>
     </button>
       </div>
     </div>
@@ -1567,12 +1578,12 @@ const AppContent = () => {
     <div className="bg-white border-b border-gray-200 px-8 py-4 flex items-center justify-between">
       <div className="flex items-center space-x-4">
         <h2 className="text-2xl font-bold text-gray-900">
-          {currentView === 'dashboard' && 'Dashboard'}
-          {currentView === 'bookings' && 'Bookings Management'}
-          {currentView === 'timetable' && 'Weekly Timetable'}
-          {currentView === 'facilities' && 'Facilities Overview'}
-          {currentView === 'users' && 'User Management'}
-          {currentView === 'reports' && 'Reports & Analytics'}
+          {currentView === 'dashboard' && t('dashboard')}
+          {currentView === 'bookings' && t('bookingsManagement')}
+          {currentView === 'timetable' && t('weeklyTimetable')}
+          {currentView === 'facilities' && t('facilitiesOverview')}
+          {currentView === 'users' && t('userManagement')}
+          {currentView === 'reports' && t('reportsAnalytics')}
         </h2>
       </div>
       
@@ -1583,7 +1594,7 @@ const AppContent = () => {
             className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
           >
             <Plus className="w-4 h-4" />
-            <span>New Facility</span>
+            <span>{t('newFacility')}</span>
           </button>
         )}
         {currentView === 'timetable' && (
@@ -1615,7 +1626,7 @@ const AppContent = () => {
               onClick={() => setSelectedWeek(new Date())}
               className="ml-2 px-3 py-1 text-sm bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors"
             >
-              Today
+              {t('today')}
             </button>
           </div>
         )}
@@ -1640,7 +1651,7 @@ const AppContent = () => {
           className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
         >
           <Plus className="w-4 h-4" />
-          <span>New Booking</span>
+          <span>{t('newBooking')}</span>
         </button>
       </div>
     </div>
@@ -1733,7 +1744,7 @@ const AppContent = () => {
         <div className="rounded-2xl border border-gray-200 bg-white shadow-sm">
           <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
             <h3 className="text-base font-semibold text-gray-900">
-              {isAdmin() ? "Today's Schedule" : "My Schedule Today"}
+              {isAdmin() ? t('todaysSchedule') : t('myScheduleToday')}
             </h3>
             <button
               onClick={refreshData}
@@ -1777,7 +1788,7 @@ const AppContent = () => {
             }).length === 0 && (
               <div className="text-center py-10 text-gray-500">
                 <Calendar className="w-12 h-12 mx-auto mb-3 text-gray-300" />
-                <p>{isAdmin() ? "No bookings scheduled for today" : "You have no bookings scheduled for today"}</p>
+                <p>{isAdmin() ? t('noBookingsTodayAdmin') : t('noBookingsToday')}</p>
               </div>
             )}
           </div>
@@ -2517,8 +2528,8 @@ const AppContent = () => {
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <h2 className="text-xl font-semibold text-gray-700">Loading TSG Hallenmanagement...</h2>
-          <p className="text-gray-500">Please wait while we fetch your data</p>
+          <h2 className="text-xl font-semibold text-gray-700">{t('loadingApp')}</h2>
+          <p className="text-gray-500">{t('pleaseWaitData')}</p>
         </div>
       </div>
     );
@@ -2532,13 +2543,13 @@ const AppContent = () => {
           <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
             <X className="w-8 h-8 text-red-600" />
           </div>
-          <h2 className="text-xl font-semibold text-gray-700 mb-2">Connection Error</h2>
+          <h2 className="text-xl font-semibold text-gray-700 mb-2">{t('connectionError')}</h2>
           <p className="text-gray-500 mb-4">{dataError}</p>
           <button
             onClick={refreshData}
             className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
           >
-            Retry Connection
+            {t('retryConnection')}
           </button>
         </div>
       </div>
@@ -4208,9 +4219,11 @@ const AppContent = () => {
 
 const App = () => {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <LanguageProvider>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </LanguageProvider>
   );
 };
 

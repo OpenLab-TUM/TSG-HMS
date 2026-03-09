@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { Mail, Lock, User, Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react';
+import { useLanguage } from '../contexts/LanguageContext';
 
 const Register = ({ onRegister, onSwitchToLogin, loading, error, success }) => {
+  const { t, language, toggleLanguage } = useLanguage();
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -47,23 +49,30 @@ const Register = ({ onRegister, onSwitchToLogin, loading, error, success }) => {
   };
 
   const getPasswordStrengthText = () => {
-    if (passwordStrength <= 2) return 'Weak';
-    if (passwordStrength <= 3) return 'Fair';
-    if (passwordStrength <= 4) return 'Good';
-    return 'Strong';
+    if (passwordStrength <= 2) return t('weak');
+    if (passwordStrength <= 3) return t('fair');
+    if (passwordStrength <= 4) return t('good');
+    return t('strong');
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4 relative">
+      <button
+        type="button"
+        onClick={toggleLanguage}
+        className="absolute top-4 right-4 px-4 py-2 bg-white/80 hover:bg-white rounded-lg shadow-sm text-sm font-medium text-gray-700 transition-colors"
+      >
+        {language === 'en' ? 'Deutsch' : 'English'}
+      </button>
       <div className="max-w-md w-full space-y-8">
         {/* Header */}
         <div className="text-center">
           <div className="mx-auto h-16 w-16 bg-green-600 rounded-full flex items-center justify-center mb-4">
             <User className="h-8 w-8 text-white" />
           </div>
-          <h2 className="text-3xl font-bold text-gray-900">Create Account</h2>
+          <h2 className="text-3xl font-bold text-gray-900">{t('createAccount')}</h2>
           <p className="mt-2 text-sm text-gray-600">
-            Join TSG Hallenmanagement as a collaborator
+            {t('joinAsCollaborator')}
           </p>
         </div>
 
@@ -88,7 +97,7 @@ const Register = ({ onRegister, onSwitchToLogin, loading, error, success }) => {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label htmlFor="firstName" className="block text-sm font-medium text-gray-700 mb-2">
-                  First Name
+                  {t('firstName')}
                 </label>
                 <input
                   id="firstName"
@@ -96,14 +105,14 @@ const Register = ({ onRegister, onSwitchToLogin, loading, error, success }) => {
                   value={formData.firstName}
                   onChange={(e) => handleChange('firstName', e.target.value)}
                   className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="First name"
+                  placeholder={t('firstLastNamePlaceholder')}
                   required
                 />
               </div>
               
               <div>
                 <label htmlFor="lastName" className="block text-sm font-medium text-gray-700 mb-2">
-                  Last Name
+                  {t('lastName')}
                 </label>
                 <input
                   id="lastName"
@@ -111,7 +120,7 @@ const Register = ({ onRegister, onSwitchToLogin, loading, error, success }) => {
                   value={formData.lastName}
                   onChange={(e) => handleChange('lastName', e.target.value)}
                   className="block w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Last name"
+                  placeholder={t('lastLastNamePlaceholder')}
                   required
                 />
               </div>
@@ -120,7 +129,7 @@ const Register = ({ onRegister, onSwitchToLogin, loading, error, success }) => {
             {/* Email Field */}
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                Email Address
+                {t('emailAddress')}
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -132,7 +141,7 @@ const Register = ({ onRegister, onSwitchToLogin, loading, error, success }) => {
                   value={formData.email}
                   onChange={(e) => handleChange('email', e.target.value)}
                   className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Enter your email"
+                  placeholder={t('enterEmail')}
                   required
                 />
               </div>
@@ -141,7 +150,7 @@ const Register = ({ onRegister, onSwitchToLogin, loading, error, success }) => {
             {/* Password Field */}
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-                Password
+                {t('password')}
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -153,7 +162,7 @@ const Register = ({ onRegister, onSwitchToLogin, loading, error, success }) => {
                   value={formData.password}
                   onChange={(e) => handleChange('password', e.target.value)}
                   className="block w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Create a password"
+                  placeholder={t('createPassword')}
                   required
                 />
                 <button
@@ -173,7 +182,7 @@ const Register = ({ onRegister, onSwitchToLogin, loading, error, success }) => {
               {formData.password && (
                 <div className="mt-2">
                   <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
-                    <span>Password strength:</span>
+                    <span>{t('passwordStrength')}</span>
                     <span className={`px-2 py-1 rounded ${getPasswordStrengthColor()} text-white text-xs`}>
                       {getPasswordStrengthText()}
                     </span>
@@ -191,7 +200,7 @@ const Register = ({ onRegister, onSwitchToLogin, loading, error, success }) => {
             {/* Confirm Password Field */}
             <div>
               <label htmlFor="confirmPassword" className="block text-sm font-medium text-gray-700 mb-2">
-                Confirm Password
+                {t('confirmPassword')}
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -207,7 +216,7 @@ const Register = ({ onRegister, onSwitchToLogin, loading, error, success }) => {
                       ? 'border-red-300 focus:border-red-500'
                       : 'border-gray-300 focus:border-blue-500'
                   }`}
-                  placeholder="Confirm your password"
+                  placeholder={t('confirmPasswordPlaceholder')}
                   required
                 />
                 <button
@@ -224,15 +233,14 @@ const Register = ({ onRegister, onSwitchToLogin, loading, error, success }) => {
               </div>
               
               {formData.confirmPassword && formData.password !== formData.confirmPassword && (
-                <p className="mt-1 text-xs text-red-600">Passwords do not match</p>
+                <p className="mt-1 text-xs text-red-600">{t('passwordsDoNotMatch')}</p>
               )}
             </div>
 
             {/* Info Box */}
             <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg">
               <p className="text-xs text-blue-700">
-                <strong>Note:</strong> After registration, an admin will review your account and send you a verification email. 
-                You'll be able to book facilities once your account is verified.
+                <strong>{t('note')}:</strong> {t('registrationNoteFull')}
               </p>
             </div>
 
@@ -245,10 +253,10 @@ const Register = ({ onRegister, onSwitchToLogin, loading, error, success }) => {
               {loading ? (
                 <div className="flex items-center space-x-2">
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  <span>Creating account...</span>
+                  <span>{t('creatingAccount')}</span>
                 </div>
               ) : (
-                'Create Account'
+                t('register')
               )}
             </button>
           </form>
@@ -256,12 +264,12 @@ const Register = ({ onRegister, onSwitchToLogin, loading, error, success }) => {
           {/* Switch to Login */}
           <div className="mt-6 text-center">
             <p className="text-sm text-gray-600">
-              Already have an account?{' '}
+              {t('alreadyHaveAccount')}{' '}
               <button
                 onClick={onSwitchToLogin}
                 className="font-medium text-blue-600 hover:text-blue-500 transition-colors"
               >
-                Sign in here
+                {t('signInHere')}
               </button>
             </p>
           </div>

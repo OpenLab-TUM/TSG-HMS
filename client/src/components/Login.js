@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { Mail, Lock, User, Eye, EyeOff, AlertCircle } from 'lucide-react';
+import { useLanguage } from '../contexts/LanguageContext';
 
 const Login = ({ onLogin, onSwitchToRegister, loading, error }) => {
+  const { t, language, toggleLanguage } = useLanguage();
   const [formData, setFormData] = useState({
     email: '',
     password: ''
@@ -21,16 +23,23 @@ const Login = ({ onLogin, onSwitchToRegister, loading, error }) => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4 relative">
+      <button
+        type="button"
+        onClick={toggleLanguage}
+        className="absolute top-4 right-4 px-4 py-2 bg-white/80 hover:bg-white rounded-lg shadow-sm text-sm font-medium text-gray-700 transition-colors"
+      >
+        {language === 'en' ? 'Deutsch' : 'English'}
+      </button>
       <div className="max-w-md w-full space-y-8">
         {/* Header */}
         <div className="text-center">
           <div className="mx-auto h-16 w-16 bg-blue-600 rounded-full flex items-center justify-center mb-4">
             <User className="h-8 w-8 text-white" />
           </div>
-          <h2 className="text-3xl font-bold text-gray-900">Welcome Back</h2>
+          <h2 className="text-3xl font-bold text-gray-900">{t('welcomeBack')}</h2>
           <p className="mt-2 text-sm text-gray-600">
-            Sign in to your TSG Hallenmanagement account
+            {t('signInToAccount')}
           </p>
         </div>
 
@@ -47,7 +56,7 @@ const Login = ({ onLogin, onSwitchToRegister, loading, error }) => {
             {/* Email Field */}
             <div>
               <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-2">
-                Email Address
+                {t('emailAddress')}
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -59,7 +68,7 @@ const Login = ({ onLogin, onSwitchToRegister, loading, error }) => {
                   value={formData.email}
                   onChange={(e) => handleChange('email', e.target.value)}
                   className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Enter your email"
+                  placeholder={t('enterEmail')}
                   required
                 />
               </div>
@@ -68,7 +77,7 @@ const Login = ({ onLogin, onSwitchToRegister, loading, error }) => {
             {/* Password Field */}
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-                Password
+                {t('password')}
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -80,7 +89,7 @@ const Login = ({ onLogin, onSwitchToRegister, loading, error }) => {
                   value={formData.password}
                   onChange={(e) => handleChange('password', e.target.value)}
                   className="block w-full pl-10 pr-10 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  placeholder="Enter your password"
+                  placeholder={t('enterPassword')}
                   required
                 />
                 <button
@@ -106,10 +115,10 @@ const Login = ({ onLogin, onSwitchToRegister, loading, error }) => {
               {loading ? (
                 <div className="flex items-center space-x-2">
                   <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  <span>Signing in...</span>
+                  <span>{t('signingIn')}</span>
                 </div>
               ) : (
-                'Sign In'
+                t('signIn')
               )}
             </button>
           </form>
@@ -117,12 +126,12 @@ const Login = ({ onLogin, onSwitchToRegister, loading, error }) => {
           {/* Switch to Register */}
           <div className="mt-6 text-center">
             <p className="text-sm text-gray-600">
-              Don't have an account?{' '}
+              {t('noAccount')}{' '}
               <button
                 onClick={onSwitchToRegister}
                 className="font-medium text-blue-600 hover:text-blue-500 transition-colors"
               >
-                Sign up here
+                {t('signUpHere')}
               </button>
             </p>
           </div>

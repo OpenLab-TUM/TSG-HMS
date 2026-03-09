@@ -1,11 +1,11 @@
 /* eslint-disable no-unused-vars */
 import React, { useMemo, useState, useRef, useEffect } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Tooltip, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Tooltip, useMap, ZoomControl } from 'react-leaflet';
 import L from 'leaflet';
 import { Navigation, Users, Clock, Info, Calendar, Plus, MapPin } from 'lucide-react';
 import 'leaflet/dist/leaflet.css';
 
-// Custom CSS to remove map text and ensure full height
+// Custom CSS to remove map text, ensure full height, and prevent control overlap
 const mapStyles = `
   .leaflet-container {
     height: 100vh !important;
@@ -17,6 +17,7 @@ const mapStyles = `
   .leaflet-control-zoom {
     border: none !important;
     box-shadow: 0 2px 8px rgba(0,0,0,0.1) !important;
+    margin: 10px !important;
   }
   .leaflet-control-zoom a {
     background: white !important;
@@ -25,6 +26,9 @@ const mapStyles = `
   }
   .leaflet-control-zoom a:hover {
     background: #f9fafb !important;
+  }
+  .leaflet-top.leaflet-right {
+    margin-top: 0 !important;
   }
 `;
 
@@ -53,7 +57,7 @@ const MapController = ({ selectedFacilityId, facilities }) => {
   return null;
 };
 
-const MapView = ({ facilities = [], bookings = [], onFacilityClick }) => {
+const MapView = ({ facilities = [], bookings = [], t, onFacilityClick }) => {
   const [selectedBuilding, setSelectedBuilding] = useState('all');
   const mapRef = useRef(null);
   
@@ -139,8 +143,8 @@ const MapView = ({ facilities = [], bookings = [], onFacilityClick }) => {
     <>
       <style>{mapStyles}</style>
       <div className="h-full w-full bg-white overflow-hidden relative">
-        {/* Title and Facility Selector */}
-        <div className="absolute top-4 left-4 z-[1000] bg-white rounded-lg shadow-lg border border-gray-200 p-4 max-w-sm">
+        {/* Title and Facility Selector - top-left with margin from edge */}
+        <div className="absolute top-4 left-4 z-[1000] bg-white rounded-lg shadow-lg border border-gray-200 p-4 w-64">
           <div className="flex items-center space-x-2 mb-3">
             <MapPin className="w-5 h-5 text-blue-600" />
             <h2 className="text-lg font-semibold text-gray-900">Facility Map</h2>
@@ -153,7 +157,7 @@ const MapView = ({ facilities = [], bookings = [], onFacilityClick }) => {
               onChange={(e) => handleFacilitySelect(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
             >
-              <option value="all">All Facilities</option>
+              <option value="all">{t ? t('allFacilities') : 'All Facilities'}</option>
               {validFacilities.map(facility => (
                 <option key={facility._id} value={facility._id}>
                   {facility.name} ({facility.status})
@@ -167,17 +171,17 @@ const MapView = ({ facilities = [], bookings = [], onFacilityClick }) => {
           </div>
         </div>
 
-        {/* Floating Legend */}
-        <div className="absolute top-4 right-4 z-[1000] bg-white rounded-lg shadow-lg border border-gray-200 p-3">
+        {/* Floating Legend - bottom-left to avoid overlap with zoom (top-right) */}
+        <div className="absolute bottom-4 left-4 z-[1000] bg-white rounded-lg shadow-lg border border-gray-200 p-3">
           <div className="text-sm font-medium text-gray-700 mb-2">Facility Status</div>
           <div className="space-y-2">
             <div className="flex items-center space-x-2">
               <div className="w-3 h-3 bg-green-500 rounded-full"></div>
-              <span className="text-xs text-gray-600">Open</span>
+              <span className="text-xs text-gray-600">{t ? t('open') : 'Open'}</span>
             </div>
             <div className="flex items-center space-x-2">
               <div className="w-3 h-3 bg-red-500 rounded-full"></div>
-              <span className="text-xs text-gray-600">Closed</span>
+              <span className="text-xs text-gray-600">{t ? t('closed') : 'Closed'}</span>
             </div>
           </div>
           {validFacilities.length === 0 && (
@@ -196,10 +200,11 @@ const MapView = ({ facilities = [], bookings = [], onFacilityClick }) => {
             zoom={validFacilities.length > 0 ? 16 : 13}
             style={{ height: '100%', width: '100%' }}
             className="z-0"
-            zoomControl={true}
+            zoomControl={false}
             attributionControl={false}
             ref={mapRef}
           >
+            <ZoomControl position="bottomright" />
             {/* Map Controller for facility selection */}
             <MapController selectedFacilityId={selectedBuilding} facilities={validFacilities} />
             

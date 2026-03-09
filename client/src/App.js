@@ -827,7 +827,7 @@ const AppContent = () => {
         <div style={{ color: '#6b7280', fontSize: 14, marginBottom: 20 }}>{getWeekRange(weekDate)}</div>
         <div style={{ border: '2px solid #e5e7eb', borderRadius: 12, overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1)' }}>
           <div style={{ display: 'grid', gridTemplateColumns: '120px repeat(7, minmax(160px, 1fr))', background: '#f8fafc', borderBottom: '2px solid #e5e7eb' }}>
-            <div style={{ padding: 12, fontWeight: 600, fontSize: 14, color: '#374151' }}>Time</div>
+            <div style={{ padding: 12, fontWeight: 600, fontSize: 14, color: '#374151' }}>{t('time')}</div>
             {dayNames.map((d, i) => (
               <div key={d} style={{ padding: 12, textAlign: 'center', fontWeight: 600, fontSize: 14, color: '#374151' }}>
                 <div>{d}</div>
@@ -1360,7 +1360,7 @@ const AppContent = () => {
         <div ref={scrollRef} className="min-w-max">
           <div>
             <div className="grid grid-cols-8 gap-1 text-xs mb-2">
-              <div className="font-medium text-gray-700 w-24">Time</div>
+              <div className="font-medium text-gray-700 w-24">{t('time')}</div>
               {days.map(d => (
                 <div key={d.key} className="font-medium text-gray-700 text-center w-14">{d.label}</div>
               ))}
@@ -1705,11 +1705,11 @@ const AppContent = () => {
               <div className="w-12 h-12 rounded-xl bg-emerald-100 flex items-center justify-center">
                 <Home className="w-6 h-6 text-emerald-600" />
               </div>
-              <span className="text-xs font-medium text-gray-500">Open</span>
+              <span className="text-xs font-medium text-gray-500">{t('open')}</span>
             </div>
             <div className="flex items-baseline space-x-2">
               <h3 className="text-3xl font-bold tracking-tight text-gray-900">{(facilities || []).filter(f => f?.status === 'open').length}</h3>
-              <span className="text-sm text-gray-500">Facilities</span>
+              <span className="text-sm text-gray-500">{t('facilities')}</span>
             </div>
           </div>
         </div>
@@ -1722,7 +1722,7 @@ const AppContent = () => {
               <div className="w-12 h-12 rounded-xl bg-purple-100 flex items-center justify-center">
                 <Clock className="w-6 h-6 text-purple-600" />
               </div>
-              <span className="text-xs font-medium text-gray-500">Next 7 days</span>
+              <span className="text-xs font-medium text-gray-500">{t('next7Days')}</span>
             </div>
             <div className="flex items-baseline space-x-2">
               <h3 className="text-3xl font-bold tracking-tight text-gray-900">{bookings.filter(b => {
@@ -1733,7 +1733,7 @@ const AppContent = () => {
                 const diffDays = (dayOnly - today) / (1000 * 60 * 60 * 24);
                 return diffDays >= 0 && diffDays < 7;
               }).length}</h3>
-              <span className="text-sm text-gray-500">Bookings</span>
+              <span className="text-sm text-gray-500">{t('bookings')}</span>
             </div>
           </div>
         </div>
@@ -1959,10 +1959,10 @@ const AppContent = () => {
       <div className="p-8">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-semibold text-gray-900">
-            {facilityFilter === 'all' ? 'Weekly Timetable' : `${(facilities || []).find(f => f?._id === facilityFilter)?.name} Timetable`}
+            {facilityFilter === 'all' ? t('weeklyTimetable') : `${(facilities || []).find(f => f?._id === facilityFilter)?.name} ${t('timetable')}`}
           </h3>
           <div className="flex items-center space-x-2">
-            <label className="text-sm text-gray-600">Facility:</label>
+            <label className="text-sm text-gray-600">{t('facilityLabel')}:</label>
             <select
               value={facilityFilter}
               onChange={(e) => {
@@ -1971,7 +1971,7 @@ const AppContent = () => {
               }}
               className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <option value="all">All Facilities</option>
+              <option value="all">{t('allFacilities')}</option>
               {(facilities || []).map((f) => (
                 <option key={f?._id} value={f?._id}>{f?.name}</option>
               ))}
@@ -1979,13 +1979,13 @@ const AppContent = () => {
             
             {facilityFilter !== 'all' && (
               <>
-                <label className="text-sm text-gray-600 ml-4">Hall:</label>
+                <label className="text-sm text-gray-600 ml-4">{t('hallLabel')}:</label>
                 <select
                   value={hallFilter}
                   onChange={(e) => setHallFilter(e.target.value)}
                   className="px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
-                  <option value="all">All Halls</option>
+                  <option value="all">{t('allHalls')}</option>
                   {(facilities || []).find(f => f?._id === facilityFilter)?.halls?.map((hall) => (
                     <option key={hall?.name} value={hall?.name}>{hall?.name}</option>
                   )) || []}
@@ -2026,7 +2026,7 @@ const AppContent = () => {
                   return null;
                 })()}
                 <div className="grid grid-cols-8 gap-0 border-b border-gray-200 mb-2">
-                  <div className="p-2 font-medium text-gray-700 bg-gray-50">Time</div>
+                  <div className="p-2 font-medium text-gray-700 bg-gray-50">{t('time')}</div>
                   {dayNames.map((d, i) => {
                     const sel = (facilities || []).find(f => f?._id === facilityFilter);
                     const dayBookings = sel ? getBookingsForFacilityAndDate(sel, weekDates[i], hallFilter !== 'all' ? hallFilter : null) : [];
@@ -2039,7 +2039,7 @@ const AppContent = () => {
                         <div className="text-xs text-gray-500">{weekDates[i].toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</div>
                         {isToday && (
                           <div className="mt-1 inline-block px-2 py-0.5 bg-blue-100 text-blue-700 text-xs rounded-full">
-                            Today
+                            {t('today')}
                           </div>
                         )}
                         {hasOverlaps && (
@@ -2184,7 +2184,7 @@ const AppContent = () => {
                 {/* Header with days */}
                 <div className="grid grid-cols-8 border-b border-gray-200 bg-gray-50">
                   <div className="p-4 font-medium text-gray-700 border-r border-gray-200">
-                    <div className="text-lg font-semibold">Facilities</div>
+                    <div className="text-lg font-semibold">{t('facilities')}</div>
                     <div className="text-sm text-gray-500 mt-1">Click + to book</div>
                   </div>
                   {weekDates.map((date, index) => (
@@ -2575,7 +2575,7 @@ const AppContent = () => {
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                     <input
                       type="text"
-                      placeholder="Search bookings..."
+                      placeholder={t('searchBookings')}
                       value={searchTerm}
                       onChange={(e) => setSearchTerm(e.target.value)}
                       className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -2583,58 +2583,58 @@ const AppContent = () => {
                   </div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">
-                      <span className="text-xs text-gray-500">Status</span>
+                      <span className="text-xs text-gray-500">{t('status')}</span>
                       <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)} className="bg-transparent text-sm focus:outline-none focus:ring-0">
-                        <option value="all">All</option>
-                        <option value="confirmed">Confirmed</option>
-                        <option value="pending">Pending</option>
-                        <option value="cancelled">Cancelled</option>
-                        <option value="completed">Completed</option>
+                        <option value="all">{t('all')}</option>
+                        <option value="confirmed">{t('confirmed')}</option>
+                        <option value="pending">{t('pending')}</option>
+                        <option value="cancelled">{t('cancelled')}</option>
+                        <option value="completed">{t('completed')}</option>
                       </select>
                     </div>
                     <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">
-                      <span className="text-xs text-gray-500">Facility</span>
+                      <span className="text-xs text-gray-500">{t('facility')}</span>
                       <select value={filterFacilityId} onChange={(e) => setFilterFacilityId(e.target.value)} className="bg-transparent text-sm focus:outline-none focus:ring-0">
-                        <option value="all">All</option>
+                        <option value="all">{t('all')}</option>
                         {(facilities || []).map(f => (<option key={f._id} value={f._id}>{f?.name}</option>))}
                       </select>
                     </div>
                     <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">
-                      <span className="text-xs text-gray-500">Date</span>
+                      <span className="text-xs text-gray-500">{t('date')}</span>
                       <input type="date" value={filterDate} onChange={(e) => setFilterDate(e.target.value)} className="bg-transparent text-sm focus:outline-none focus:ring-0" />
                     </div>
                     <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">
-                      <span className="text-xs text-gray-500">Type</span>
+                      <span className="text-xs text-gray-500">{t('type')}</span>
                       <select value={filterRecurring} onChange={(e) => setFilterRecurring(e.target.value)} className="bg-transparent text-sm focus:outline-none focus:ring-0">
-                        <option value="all">All</option>
-                        <option value="recurring">Recurring</option>
-                        <option value="one-time">One-time</option>
+                        <option value="all">{t('all')}</option>
+                        <option value="recurring">{t('recurringFilter')}</option>
+                        <option value="one-time">{t('oneTime')}</option>
                       </select>
                     </div>
                     <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">
-                      <span className="text-xs text-gray-500">Duration</span>
+                      <span className="text-xs text-gray-500">{t('duration')}</span>
                       <select value={filterDuration} onChange={(e) => setFilterDuration(e.target.value)} className="bg-transparent text-sm focus:outline-none focus:ring-0">
-                        <option value="all">All</option>
+                        <option value="all">{t('all')}</option>
                         <option value="gt4h">&gt; 4h</option>
                         <option value="lte4h">≤ 4h</option>
                       </select>
                     </div>
                     {isAdmin() && (
                       <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1.5">
-                        <span className="text-xs text-gray-500">User</span>
+                        <span className="text-xs text-gray-500">{t('user')}</span>
                         <select value={filterUser} onChange={(e) => setFilterUser(e.target.value)} className="bg-transparent text-sm focus:outline-none focus:ring-0">
-                          <option value="all">All</option>
+                          <option value="all">{t('all')}</option>
                           {(users || []).map(u => (<option key={u._id} value={u._id}>{u?.firstName} {u?.lastName}</option>))}
                         </select>
                       </div>
                     )}
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-sm text-gray-500">{displayBookings.length} bookings</span>
+                    <span className="text-sm text-gray-500">{displayBookings.length} {t('bookingsCount')}</span>
                     {activeBookingsFilterCount > 0 && (
-                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">{activeBookingsFilterCount} active</span>
+                      <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">{activeBookingsFilterCount} {t('activeFilters')}</span>
                     )}
-                    <button onClick={clearBookingsFilters} className="px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50" title="Clear filters">Clear</button>
+                    <button onClick={clearBookingsFilters} className="px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50" title={t('clearFilters')}>{t('clear')}</button>
                   </div>
                 </div>
               </div>
@@ -2644,14 +2644,14 @@ const AppContent = () => {
                   <table className="w-full">
                     <thead>
                       <tr className="border-b border-gray-200">
-                        <th className="text-left p-4 font-medium text-gray-700">Facility</th>
-                        <th className="text-left p-4 font-medium text-gray-700">Date</th>
-                        <th className="text-left p-4 font-medium text-gray-700">Time</th>
-                        <th className="text-left p-4 font-medium text-gray-700">User</th>
-                        <th className="text-left p-4 font-medium text-gray-700">Purpose</th>
-                        <th className="text-left p-4 font-medium text-gray-700">Recurring</th>
-                        <th className="text-left p-4 font-medium text-gray-700">Status</th>
-                        <th className="text-left p-4 font-medium text-gray-700">Actions</th>
+                        <th className="text-left p-4 font-medium text-gray-700">{t('facility')}</th>
+                        <th className="text-left p-4 font-medium text-gray-700">{t('date')}</th>
+                        <th className="text-left p-4 font-medium text-gray-700">{t('time')}</th>
+                        <th className="text-left p-4 font-medium text-gray-700">{t('user')}</th>
+                        <th className="text-left p-4 font-medium text-gray-700">{t('purpose')}</th>
+                        <th className="text-left p-4 font-medium text-gray-700">{t('recurring')}</th>
+                        <th className="text-left p-4 font-medium text-gray-700">{t('status')}</th>
+                        <th className="text-left p-4 font-medium text-gray-700">{t('actions')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2683,7 +2683,7 @@ const AppContent = () => {
                                 </span>
                                 {booking.status === 'pending' && (
                                   <span className="ml-1 text-xs text-amber-600 bg-amber-100 px-1.5 py-0.5 rounded-full">
-                                    Verify Series
+                                    {t('verifySeries')}
                                   </span>
                                 )}
                               </div>
@@ -2696,7 +2696,7 @@ const AppContent = () => {
                           </td>
                           <td className="p-4">
                             <div className="flex items-center space-x-2">
-                              <button className="p-1 hover:bg-gray-100 rounded" onClick={() => setSelectedBooking(booking)} title="View details">
+                              <button className="p-1 hover:bg-gray-100 rounded" onClick={() => setSelectedBooking(booking)} title={t('viewDetails')}>
                                 <Eye className="w-4 h-4 text-gray-600" />
                               </button>
                               {(isAdmin() || canEditBooking(booking)) && !isBookingPast(booking) && (
@@ -2752,7 +2752,7 @@ const AppContent = () => {
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                     <input
                       type="text"
-                      placeholder="Search facilities..."
+                      placeholder={t('searchFacilities')}
                       value={facilitySearchTerm}
                       onChange={(e) => setFacilitySearchTerm(e.target.value)}
                       className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -2761,39 +2761,39 @@ const AppContent = () => {
 
                   <div className="flex items-center gap-2">
                     <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-full pl-3 pr-2 py-1.5">
-                      <span className="text-xs text-gray-500">Status</span>
+                      <span className="text-xs text-gray-500">{t('status')}</span>
                       <select
                         value={facilityStatusFilter}
                         onChange={(e) => setFacilityStatusFilter(e.target.value)}
                         className="bg-transparent text-sm focus:outline-none focus:ring-0"
                       >
-                        <option value="all">All</option>
-                        <option value="open">Open</option>
-                        <option value="closed">Closed</option>
+                        <option value="all">{t('all')}</option>
+                        <option value="open">{t('open')}</option>
+                        <option value="closed">{t('closed')}</option>
                       </select>
                     </div>
-                    <span className="text-sm text-gray-500">{filteredFacilitiesList.length} facilities</span>
+                    <span className="text-sm text-gray-500">{filteredFacilitiesList.length} {t('facilitiesCount')}</span>
                     {equipmentSelected.length > 0 && (
-                      <span className="hidden sm:inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">{equipmentSelected.length} selected</span>
+                      <span className="hidden sm:inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">{equipmentSelected.length} {t('selected')}</span>
                     )}
                     {equipmentSelected.length > 0 && (
-                      <button onClick={clearEquipmentFilter} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Clear</button>
+                      <button onClick={clearEquipmentFilter} className="px-3 py-1.5 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">{t('clear')}</button>
                     )}
                   </div>
                 </div>
               </div>
               <div className="p-3">
                 <div className="flex items-center justify-between mb-2">
-                  <h4 className="text-sm font-semibold text-gray-700">Equipment</h4>
+                  <h4 className="text-sm font-semibold text-gray-700">{t('equipment')}</h4>
                   {uniqueEquipment.length > 12 && (
                     <button onClick={() => setShowAllEquipmentFilters(v => !v)} className="text-xs text-blue-600 hover:text-blue-700">
-                      {showAllEquipmentFilters ? 'Show less' : 'Show more'}
+                      {showAllEquipmentFilters ? t('showLess') : t('showMore')}
                     </button>
                   )}
                 </div>
                 <div className="flex flex-row flex-wrap gap-2 overflow-x-auto sm:overflow-visible pr-1">
                   {uniqueEquipment.length === 0 ? (
-                    <span className="text-xs text-gray-500">No equipment found</span>
+                    <span className="text-xs text-gray-500">{t('noEquipmentFound')}</span>
                   ) : (
                     (showAllEquipmentFilters ? uniqueEquipment : uniqueEquipment.slice(0, 12)).map(eq => {
                       const selected = equipmentSelected.includes(eq);
@@ -2820,11 +2820,11 @@ const AppContent = () => {
                   <table className="w-full">
                     <thead>
                       <tr className="border-b border-gray-200">
-                        <th className="text-left p-4 font-medium text-gray-700">Facility Name</th>
-                        <th className="text-left p-4 font-medium text-gray-700">Status</th>
-                        <th className="text-left p-4 font-medium text-gray-700">Location</th>
-                        <th className="text-left p-4 font-medium text-gray-700">Equipment</th>
-                        <th className="text-left p-4 font-medium text-gray-700">Actions</th>
+                        <th className="text-left p-4 font-medium text-gray-700">{t('facilityName')}</th>
+                        <th className="text-left p-4 font-medium text-gray-700">{t('status')}</th>
+                        <th className="text-left p-4 font-medium text-gray-700">{t('location')}</th>
+                        <th className="text-left p-4 font-medium text-gray-700">{t('equipment')}</th>
+                        <th className="text-left p-4 font-medium text-gray-700">{t('actions')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -2906,56 +2906,56 @@ const AppContent = () => {
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
                     <input
                       type="text"
-                      placeholder="Search name or email..."
+                      placeholder={t('searchNameOrEmail')}
                       value={userSearchTerm}
                       onChange={(e) => setUserSearchTerm(e.target.value)}
                       className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                   <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-full pl-3 pr-2 py-1.5">
-                    <span className="text-xs text-gray-500">Verified</span>
+                    <span className="text-xs text-gray-500">{t('verified')}</span>
                     <select
                       value={userVerifiedFilter}
                       onChange={(e) => setUserVerifiedFilter(e.target.value)}
                       className="bg-transparent text-sm focus:outline-none focus:ring-0"
                       title="Filter by verification"
                     >
-                      <option value="all">All</option>
-                      <option value="verified">Yes</option>
-                      <option value="unverified">No</option>
+                      <option value="all">{t('all')}</option>
+                      <option value="verified">{t('yes')}</option>
+                      <option value="unverified">{t('no')}</option>
                     </select>
                   </div>
                   <div className="inline-flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-full pl-3 pr-2 py-1.5">
-                    <span className="text-xs text-gray-500">Status</span>
+                    <span className="text-xs text-gray-500">{t('status')}</span>
                     <select
                       value={userActiveFilter}
                       onChange={(e) => setUserActiveFilter(e.target.value)}
                       className="bg-transparent text-sm focus:outline-none focus:ring-0"
                       title="Filter by status"
                     >
-                      <option value="all">All</option>
-                      <option value="active">Active</option>
-                      <option value="blocked">Blocked</option>
+                      <option value="all">{t('all')}</option>
+                      <option value="active">{t('active')}</option>
+                      <option value="blocked">{t('blocked')}</option>
                     </select>
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
                   {activeUsersFilterCount > 0 && (
-                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">{activeUsersFilterCount} active</span>
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 border border-blue-200">{activeUsersFilterCount} {t('activeFilters')}</span>
                   )}
-                  <button onClick={clearUsersFilters} className="px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Clear</button>
+                  <button onClick={clearUsersFilters} className="px-3 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">{t('clear')}</button>
                 </div>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full">
                   <thead>
                     <tr className="border-b border-gray-200 bg-gray-50">
-                      <th className="text-left p-4 font-medium text-gray-700">Name</th>
-                      <th className="text-left p-4 font-medium text-gray-700">Email</th>
-                      <th className="text-left p-4 font-medium text-gray-700">Role</th>
-                      <th className="text-left p-4 font-medium text-gray-700">Verified</th>
-                      <th className="text-left p-4 font-medium text-gray-700">Active</th>
-                      <th className="text-left p-4 font-medium text-gray-700">Actions</th>
+                      <th className="text-left p-4 font-medium text-gray-700">{t('name')}</th>
+                      <th className="text-left p-4 font-medium text-gray-700">{t('email')}</th>
+                      <th className="text-left p-4 font-medium text-gray-700">{t('role')}</th>
+                      <th className="text-left p-4 font-medium text-gray-700">{t('verified')}</th>
+                      <th className="text-left p-4 font-medium text-gray-700">{t('active')}</th>
+                      <th className="text-left p-4 font-medium text-gray-700">{t('actions')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -2974,12 +2974,12 @@ const AppContent = () => {
                         <td className="p-4 capitalize">{u.role}</td>
                         <td className="p-4">
                           <span className={`px-2 py-0.5 rounded-full text-xs ${u.verified ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}`}>
-                            {u.verified ? 'Yes' : 'No'}
+                            {u.verified ? t('yes') : t('no')}
                           </span>
                         </td>
                         <td className="p-4">
                           <span className={`px-2 py-0.5 rounded-full text-xs ${u.isActive !== false ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                            {u.isActive !== false ? 'Active' : 'Blocked'}
+                            {u.isActive !== false ? t('active') : t('blocked')}
                           </span>
                         </td>
                         <td className="p-4">
@@ -3089,6 +3089,7 @@ const AppContent = () => {
             <MapView 
               facilities={facilities}
               bookings={bookings}
+              t={t}
               onFacilityClick={setSelectedFacility}
               onBookingClick={(booking) => console.log(booking)}
               onNewBooking={() => {
@@ -3148,7 +3149,7 @@ const AppContent = () => {
               {/* Left Column - Form Fields */}
               <div className="w-full lg:w-80 space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Facility</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">{t('facility')}</label>
                   <select
                     value={bookingForm.facility}
                     onChange={(e) => handleFormChange('facility', e.target.value)}
@@ -3244,7 +3245,7 @@ const AppContent = () => {
                 })()}
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">{t('date')}</label>
                   <input
                     type="date"
                     value={bookingForm.date}
@@ -3370,7 +3371,7 @@ const AppContent = () => {
                 )}
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Purpose</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">{t('purpose')}</label>
                   <input
                     ref={purposeInputRef}
                     type="text"
@@ -3421,13 +3422,13 @@ const AppContent = () => {
                       }}
                       className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
                     >
-                      Cancel
+                      {t('cancel')}
                     </button>
                     <button
                       type="submit"
                       className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium"
                     >
-                      {editingBooking ? 'Update Booking' : 'Create Booking'}
+                      {editingBooking ? t('updateBooking') : t('createBooking')}
                     </button>
                   </div>
                 </div>
@@ -3435,7 +3436,7 @@ const AppContent = () => {
               
               {/* Right Column - Full Timetable */}
               <div className="w-full lg:flex-1">
-                <label className="block text-sm font-medium text-gray-700 mb-3">Available Time Slots</label>
+                <label className="block text-sm font-medium text-gray-700 mb-3">{t('availableTimeSlots')}</label>
                 
                 
                 
@@ -3760,7 +3761,7 @@ const AppContent = () => {
               </div>
               
               <div>
-                <h4 className="text-sm font-medium text-gray-700 mb-3">Weekly Schedule</h4>
+                <h4 className="text-sm font-medium text-gray-700 mb-3">{t('weeklySchedule')}</h4>
                 <div className="overflow-x-auto">
                   <div className="min-w-max">
                     <OpeningHoursGrid
@@ -3783,7 +3784,7 @@ const AppContent = () => {
                   </div>
                   <div className="flex items-center space-x-2">
                     <div className="w-4 h-4 bg-red-200 rounded"></div>
-                    <span className="text-gray-600">Closed</span>
+                    <span className="text-gray-600">{t('closed')}</span>
                   </div>
                 </div>
               </div>
@@ -3839,7 +3840,7 @@ const AppContent = () => {
                   <p className="text-sm font-medium text-gray-900">{new Date(selectedBooking.date).toLocaleDateString()}</p>
                 </div>
                 <div>
-                  <p className="text-xs text-gray-500">Time</p>
+                  <p className="text-xs text-gray-500">{t('time')}</p>
                   <p className="text-sm font-medium text-gray-900">{selectedBooking.startTime}-{selectedBooking.endTime}</p>
                 </div>
                 <div>
@@ -3938,14 +3939,14 @@ const AppContent = () => {
                 </div>
                 
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Status</label>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">{t('status')}</label>
                   <select
                     value={facilityForm.status}
                     onChange={(e) => handleFacilityChange('status', e.target.value)}
                     className="w-full px-4 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="open">Open</option>
-                    <option value="closed">Closed</option>
+                    <option value="open">{t('open')}</option>
+                    <option value="closed">{t('closed')}</option>
                   </select>
                 </div>
                 
@@ -4110,13 +4111,13 @@ const AppContent = () => {
                       onClick={() => { setShowFacilityModal(false); setEditingFacility(null); }}
                       className="px-6 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors font-medium"
                     >
-                      Cancel
+                      {t('cancel')}
                     </button>
                     <button
                       type="submit"
                       className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium"
                     >
-                      Save
+                      {t('save')}
                     </button>
                   </div>
                 </div>
@@ -4124,7 +4125,7 @@ const AppContent = () => {
               
               {/* Right Column - Full Timetable */}
               <div className="flex-1 min-w-0 flex flex-col">
-                <h4 className="text-sm font-medium text-gray-700 mb-3">Weekly Schedule</h4>
+                <h4 className="text-sm font-medium text-gray-700 mb-3">{t('weeklySchedule')}</h4>
                 <div className="bg-gray-50 rounded-lg p-3 overflow-x-auto">
                   <div className="min-w-max">
                     <OpeningHoursGrid
@@ -4166,7 +4167,7 @@ const AppContent = () => {
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
             <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl mx-4 max-h-[85vh] overflow-y-auto">
               <div className="p-6 border-b border-gray-200 flex items-center justify-between">
-                <h3 className="text-xl font-semibold text-gray-900">{selectedUser.firstName} {selectedUser.lastName} • Previous Bookings</h3>
+                <h3 className="text-xl font-semibold text-gray-900">{selectedUser.firstName} {selectedUser.lastName} • {t('previousBookings')}</h3>
                 <button
                   onClick={() => { setShowUserBookings(false); setSelectedUser(null); }}
                   className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
@@ -4179,11 +4180,11 @@ const AppContent = () => {
                   <table className="w-full">
                     <thead>
                       <tr className="border-b border-gray-200 bg-gray-50">
-                        <th className="text-left p-3 text-sm font-medium text-gray-700">Date</th>
-                        <th className="text-left p-3 text-sm font-medium text-gray-700">Facility</th>
-                        <th className="text-left p-3 text-sm font-medium text-gray-700">Time</th>
-                        <th className="text-left p-3 text-sm font-medium text-gray-700">Purpose</th>
-                        <th className="text-left p-3 text-sm font-medium text-gray-700">Status</th>
+                        <th className="text-left p-3 text-sm font-medium text-gray-700">{t('date')}</th>
+                        <th className="text-left p-3 text-sm font-medium text-gray-700">{t('facility')}</th>
+                        <th className="text-left p-3 text-sm font-medium text-gray-700">{t('time')}</th>
+                        <th className="text-left p-3 text-sm font-medium text-gray-700">{t('purpose')}</th>
+                        <th className="text-left p-3 text-sm font-medium text-gray-700">{t('status')}</th>
                       </tr>
                     </thead>
                     <tbody>

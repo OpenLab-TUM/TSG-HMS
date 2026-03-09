@@ -57,9 +57,6 @@ const MapView = ({ facilities = [], bookings = [], onFacilityClick }) => {
   const [selectedBuilding, setSelectedBuilding] = useState('all');
   const mapRef = useRef(null);
   
-  // Default center (will be adjusted based on actual facility locations)
-  const defaultCenter = [49.1427, 9.2109]; // TSG Heilbronn coordinates
-  
   // Create custom icons for facility status (open/closed only)
   const createCustomIcon = (status) => {
     const colors = {
@@ -100,8 +97,8 @@ const MapView = ({ facilities = [], bookings = [], onFacilityClick }) => {
       facility.location.coordinates[1] >= -90 && facility.location.coordinates[1] <= 90
     );
 
-    // Calculate map center based on valid facilities
-    let center = defaultCenter;
+    // Calculate map center based on valid facilities (TSG Heilbronn coordinates)
+    let center = [49.1427, 9.2109];
     if (validFacilities.length > 0) {
       const lats = validFacilities.map(f => f.location.coordinates[1]);
       const lngs = validFacilities.map(f => f.location.coordinates[0]);

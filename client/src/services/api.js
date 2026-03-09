@@ -7,7 +7,7 @@ const inferApiBaseUrl = () => {
   if (envUrl && envUrl.trim().length > 0) return envUrl;
 
   if (typeof window !== 'undefined') {
-    const { origin, hostname, port, protocol } = window.location;
+    const { origin, hostname } = window.location;
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
       // Dev server on port 3000 usually; backend on 5000
       return 'http://localhost:5001/api';
@@ -238,4 +238,5 @@ class ApiService {
   }
 }
 
-export default new ApiService();
+const apiService = new ApiService();
+export default apiService;

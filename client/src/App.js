@@ -195,7 +195,7 @@ const AppContent = () => {
         }, 100);
       }
     }
-  }, [showBookingModal, editingBooking]);
+  }, [showBookingModal, editingBooking, bookingForm.facility]);
 
 
 
@@ -1197,7 +1197,7 @@ const AppContent = () => {
     if (filterDuration !== 'all') c++;
     if (isAdmin() && filterUser !== 'all') c++;
     return c;
-  }, [filterStatus, filterFacilityId, filterDate, filterRecurring, filterDuration, filterUser]);
+  }, [filterStatus, filterFacilityId, filterDate, filterRecurring, filterDuration, filterUser, isAdmin]);
 
   const clearBookingsFilters = () => {
     setFilterStatus('all');
@@ -1816,10 +1816,12 @@ const AppContent = () => {
       if (facilityFilter === 'all') {
         setHallFilter('all');
       }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- facilityFilter from parent scope
     }, [facilityFilter]);
     
     const visibleFacilities = useMemo(
       () => (facilityFilter === 'all' ? (facilities || []) : (facilities || []).filter(f => f?._id === facilityFilter)),
+      // eslint-disable-next-line react-hooks/exhaustive-deps -- facilityFilter, facilities from parent scope
       [facilityFilter, facilities]
     );
     

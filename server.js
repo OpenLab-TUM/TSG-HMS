@@ -13,6 +13,8 @@ const allowedOriginPatterns = [
   /^https?:\/\/127\.0\.0\.1:(3000|5000|5001)$/,
   /^https?:\/\/[a-z0-9-]+\.ngrok\.io$/,
   /^https?:\/\/[a-z0-9-]+\.ngrok-free\.app$/,
+  // GitHub Pages (e.g. https://username.github.io or https://username.github.io/repo-name)
+  /^https:\/\/[a-zA-Z0-9-]+\.github\.io(\/.*)?$/,
 ];
 
 // Allow additional explicit origins via env (comma-separated)

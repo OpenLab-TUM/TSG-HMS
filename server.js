@@ -2,6 +2,7 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
 require('dotenv').config({ path: './config.env' });
 
 const app = express();
@@ -49,7 +50,12 @@ app.use(cors(corsOptions));
 app.options('*', cors(corsOptions));
 
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'client/build')));
+
+// Only serve React build if it exists (e.g. when deployed together). Frontend on GitHub Pages is served separately.
+const clientBuildPath = path.join(__dirname, 'client/build');
+if (fs.existsSync(clientBuildPath)) {
+  app.use(express.static(clientBuildPath));
+}
 
 // MongoDB Connection
 mongoose.connect(process.env.MONGODB_URI || 'mongodb+srv://assemeldlebsh:Assem123@ypt.oy6wu.mongodb.net/tsg-hallenmanagement?retryWrites=true&w=majority&appName=tsg-hallenmanagement', {
@@ -76,9 +82,14 @@ app.use('/api/facilities', facilityRoutes);
 app.use('/api/bookings', bookingRoutes);
 app.use('/api/users', userRoutes);
 
-// Serve React app for any other routes
+// Serve React app only if build exists; otherwise return 404 for non-API routes
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'client/build', 'index.html'));
+  const indexPath = path.join(__dirname, 'client/build', 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.status(404).json({ message: 'Frontend not deployed here. Use the GitHub Pages URL.' });
+  }
 });
 
 const PORT = process.env.PORT || 5000;
